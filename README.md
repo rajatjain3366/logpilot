@@ -84,6 +84,8 @@ Scan options:
                            (default: none, so findings alone never fail the scan)
   --format <text|json>     Report format (default: text). JSON includes warnings and skipped paths
   --output <file>          Write the report to this file instead of the terminal
+  --fix-preview            Show a proposed fix (a diff) under each LP003 finding. A preview only:
+                           LogPilot never changes your files
 ```
 
 ## Example output
@@ -104,10 +106,11 @@ test/fixtures/positive/lp003-error-responses.js:14:5
        or express-winston record the request and its status code; their documentation describes no
        way to record an error the handler caught itself, and your error-handling middleware never
        sees it, because it is not passed to next(err).
-  Fix: Log the error before responding, e.g. logger.error({ err, path: req.path }, "request failed")
-       (pino) or console.error(err), or pass it on with next(err) so your error-handling middleware
-       logs it and answers. Keep the client message generic (optionally with a request ID), and
-       never log passwords, tokens or full request bodies.
+  Fix: Log the error before responding, e.g. logger.error({ err, method: req.method, route:
+       req.route?.path }, "Request failed") (pino) or console.error(err), or pass it on with
+       next(err) so your error-handling middleware logs it and answers. Keep the client message
+       generic (optionally with a request ID), and never log passwords, tokens, full request bodies
+       or URLs (paths and query strings can carry tokens).
 
 Scanned 1 file, 8 findings (LP003: 8)
 ```
@@ -133,6 +136,66 @@ The report goes to **stdout** (or to the `--output` file); errors and warnings g
 A file with syntax errors is still scanned as far as possible, and LogPilot warns about it
 (`Warning: x.js: 1 syntax error (first at line 1: Expression expected.); findings in this file may be incomplete`)
 and counts such files in the summary. Warnings do not change the exit code.
+
+## Fix previews
+
+`--fix-preview` shows a proposed fix under each LP003 finding, as a diff. **It is only a preview:
+LogPilot never changes your files.** Review the fix and apply it yourself. For now it works with the
+text format only.
+
+```text
+  Proposed fix (preview only, not applied): Log the caught error with console.error just before the
+    error response on line 7.
+    Logger: console.error (confidence low: no logger was found in this file, so the fix uses
+      console.error, which every Node.js program has)
+    --- a/src/app.js
+    +++ b/src/app.js
+    @@ -4,6 +4,7 @@
+       try {
+         res.json(await load(req.params.id));
+       } catch (err) {
+    +    console.error("Request failed:", { method: req.method, route: req.route?.path }, err);
+         res.status(500).json({ message: "Server error" });
+       }
+     });
+  Checked: the fixed code parses, the fix only adds code, it logs nothing but the error, req.method
+           and req.route?.path, and after it this finding is gone and no other finding changes.
+```
+
+**What a fix adds:** one log line with the whole error object (its message, stack trace, `code`
+and `cause`), under the catch's own variable name. A `catch {}` gets a variable: `catch (err)`, or
+another name if `err` is already used in the block.
+
+- **Context: only `req.method` and `req.route?.path`.** `req.route.path` is the route *pattern*,
+  such as `/users/:id`, never the values in the URL. A fix never logs the request body, headers,
+  cookies, query string, `req.path`, `req.originalUrl` or `req.params`: paths and query strings can
+  carry tokens (password-reset links, `?access_token=`, API keys).
+- **Where:** just before the one statement that sends a 5xx response, so failures answered on
+  purpose with a 4xx are not logged. Otherwise at the start of the catch block (the fix then says
+  that it also logs those).
+- **Style:** the same indentation (tabs or spaces), line ending (LF or CRLF), quotes and
+  semicolons as the file.
+- **The response is never changed.** If the error's message is sent to the client, or a failure
+  answers 200 OK, the fix keeps that and adds a note: changing it changes what clients receive.
+
+**Before a fix is shown, LogPilot checks it in memory:** the fix only adds code; the fixed file
+parses; the added code uses nothing but the error, `req.method`, `req.route?.path` and the logger;
+and when all rules run again, this finding is gone and nothing else changed (including what
+`logpilot-ignore` comments hide). A fix that fails a check is not shown, and LogPilot warns about it.
+
+**No fix is proposed** (the report says why) for:
+
+- a catch that only answers 4xx (case E): telling expected failures from unexpected ones needs a
+  human;
+- a `try` block that calls axios: axios errors contain the request's headers, including
+  `Authorization`, so logging the whole error would write credentials to your logs. When the file
+  imports axios but the `try` does not call it, the fix comes with a note;
+- `catch ({ message })`, where the whole error is not available;
+- error middleware written as an arrow function without braces;
+- files with syntax errors, and code where a local variable named like the request or `console`
+  would change what the log line means;
+- LP001 and LP002 findings. An empty catch needs a human decision; for LP002, ESLint's
+  `preserve-caught-error` offers a fix in your editor.
 
 ## Rules
 
@@ -446,7 +509,7 @@ settings (a library, so LP003 finds nothing there):
   "rules": [
     { "id": "LP001", "name": "empty-catch", "version": 2 },
     { "id": "LP002", "name": "lost-error-cause", "version": 1 },
-    { "id": "LP003", "name": "unlogged-error-response", "version": 2 }
+    { "id": "LP003", "name": "unlogged-error-response", "version": 3 }
   ],
   "config": { "file": null, "defaultExcludes": true, "exclude": [], "minSeverity": "low", "failOn": "none" },
   "summary": {
@@ -542,7 +605,8 @@ What LogPilot adds today, and no more:
 - **Published accuracy measurements** for every rule ([Accuracy](#accuracy)). They show that most
   LP001 and LP002 findings are not real problems. They are a measurement, not a claim of quality.
 
-What LogPilot does **not** offer: editor integration, automatic fixes, or the breadth of a linter.
+What LogPilot does **not** offer: editor integration, applying fixes (LP003 fixes are only shown, as
+[previews](#fix-previews)), or the breadth of a linter.
 We have not measured how many LogPilot findings these lint rules also report.
 
 ## Limitations
@@ -571,6 +635,12 @@ We have not measured how many LogPilot findings these lint rules also report.
   `console.error("Login failed:", err.message)` keeps the message but loses the stack trace and
   properties such as `code`. LP003 does not report it. Weak error context like this is not
   detected by any rule yet (planned as LP006, above).
+- **Logging a whole error can still write secrets, if the error itself holds them.** We measured
+  this for axios: its errors contain the outgoing request's headers (including `Authorization`) and
+  URL, so LP003's fix previews skip `try` blocks that call axios. Other HTTP clients and SDKs (got,
+  node-fetch, cloud SDKs) were not measured and may also put secrets in their errors. Check that
+  your logger redacts them.
+- **Fix previews always use `console.error` for now,** even when the project has its own logger.
 - **LP003's case E (4xx) has found no real problem so far,** only debatable cases such as
   authentication checks that answer 401. Its *low* severity was set after that measurement and has
   not been measured itself.

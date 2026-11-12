@@ -17,7 +17,7 @@ import { type ExpressHandler, findExpressHandlers, isResponseCall, sameFileFunct
 import { getLines } from "./shared.js";
 
 /** Functions defined in the file being checked, by name (for response helpers). */
-type Helpers = Map<string, ts.FunctionLikeDeclaration>;
+export type Helpers = Map<string, ts.FunctionLikeDeclaration>;
 
 /** A same-file helper that a call passes `res` to, and that responds through it. */
 interface HelperResponse {
@@ -28,14 +28,17 @@ interface HelperResponse {
 
 export const RULE_ID = "LP003";
 export const RULE_NAME = "unlogged-error-response";
-/** The version of this rule's behaviour, shown in JSON output (see LP001 for when to increase it). */
-export const RULE_VERSION = 2;
+/**
+ * The version of this rule's behaviour, shown in JSON output (see LP001 for when to increase it).
+ * Version 3: the suggestion's log example uses req.method and req.route?.path instead of req.path.
+ */
+export const RULE_VERSION = 3;
 
 /** Method names of a log call: console.log, logger.error, req.log.warn, ... */
 const LOG_METHODS = new Set(["log", "error", "warn", "info", "debug", "trace", "fatal"]);
 
 /** What a handler does with a caught error, when it does not keep it. */
-interface Analysis {
+export interface Analysis {
   /** The error, or a value made from it, is sent in the response body. */
   errorSent: boolean;
   /** There is a log call, and it does not include the error. */
@@ -44,9 +47,26 @@ interface Analysis {
   statuses: (number | "unknown")[];
 }
 
-/** Runs LP003 on one parsed file. */
-export function checkUnloggedErrorResponse(sourceFile: ts.SourceFile, filePath: string): Finding[] {
-  const findings: Finding[] = [];
+/**
+ * One place LP003 reports, with what it found there. The fixer (lp003-fix.ts) uses this, so it
+ * never has to find the handler, the catch or the case a second time.
+ */
+export interface Lp003Target {
+  /** The reported node: the catch clause, or the whole error middleware function. */
+  reported: ts.Node;
+  handler: ExpressHandler;
+  /** The catch clause; undefined for error middleware. */
+  catchClause?: ts.CatchClause;
+  /** The caught error's variable, when it is a single name. */
+  errorName?: string;
+  theCase: Lp003Case;
+  /** Response helpers defined in the same file. */
+  helpers: Helpers;
+}
+
+/** Every place in the file that LP003 reports, in source order. */
+export function findLp003Targets(sourceFile: ts.SourceFile): (Lp003Target & { analysis: Analysis })[] {
+  const targets: (Lp003Target & { analysis: Analysis })[] = [];
   const helpers = sameFileFunctions(sourceFile);
   for (const handler of findExpressHandlers(sourceFile)) {
     const body = (handler.node as ts.FunctionLikeDeclaration).body;
@@ -55,7 +75,7 @@ export function checkUnloggedErrorResponse(sourceFile: ts.SourceFile, filePath: 
       // Error middleware: every error passed on with next(err) arrives here as the first parameter.
       const analysis = analyse(body, [handler.error], handler.res, helpers);
       if (analysis !== undefined) {
-        findings.push(createFinding(handler.node, handler, analysis, handler.error, sourceFile, filePath));
+        targets.push({ reported: handler.node, handler, errorName: handler.error, analysis, theCase: caseOf(analysis), helpers });
       }
       continue;
     }
@@ -64,11 +84,49 @@ export function checkUnloggedErrorResponse(sourceFile: ts.SourceFile, filePath: 
       if (analysis !== undefined) {
         const binding = catchClause.variableDeclaration?.name;
         const errorName = binding !== undefined && ts.isIdentifier(binding) ? binding.text : undefined;
-        findings.push(createFinding(catchClause, handler, analysis, errorName, sourceFile, filePath));
+        targets.push({ reported: catchClause, handler, catchClause, errorName, analysis, theCase: caseOf(analysis), helpers });
       }
     }
   }
-  return findings;
+  return targets;
+}
+
+/** Runs LP003 on one parsed file. */
+export function checkUnloggedErrorResponse(sourceFile: ts.SourceFile, filePath: string): Finding[] {
+  return findLp003Targets(sourceFile).map((target) =>
+    createFinding(target.reported, target.handler, target.analysis, target.errorName, sourceFile, filePath),
+  );
+}
+
+/** 1-based line and column of a reported node, as in its finding. */
+export function reportedPosition(node: ts.Node, sourceFile: ts.SourceFile): { line: number; column: number } {
+  const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+  return { line: start.line + 1, column: start.character + 1 };
+}
+
+/**
+ * The response calls in `scope` that set a server-error status (5xx) or one LogPilot cannot read:
+ * res.status(500), res.sendStatus(503), res.status(err.status || 500), and same-file helpers such as
+ * errorResponse(res, 502, ...). Calls inside nested functions are left out (they run at another time).
+ */
+export function serverErrorResponses(scope: ts.Node, res: string, helpers: Helpers): ts.CallExpression[] {
+  const isServer = (status: number | "unknown") => status === "unknown" || status >= 500;
+  const found: ts.CallExpression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isCallExpression(node)) {
+      if (isResponseCall(node, res)) {
+        const method = (node.expression as ts.PropertyAccessExpression).name.text;
+        if ((method === "status" || method === "sendStatus") && isServer(statusValue(node.arguments[0]))) found.push(node);
+      } else {
+        const helper = helperResponse(node, res, helpers);
+        if (helper !== undefined && helperStatuses(node, helper).some(isServer)) found.push(node);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(scope, visit);
+  return found;
 }
 
 /** Catch clauses in a handler's body, not inside nested functions (they run at another time). */
@@ -343,10 +401,15 @@ function suggest(theCase: Lp003Case, handler: ExpressHandler, errorName: string 
   const name = errorName ?? "err";
   const parameters = (handler.node as ts.FunctionLikeDeclaration).parameters;
   const reqParameter = parameters[handler.kind === "error-middleware" ? 1 : 0]?.name;
-  const req = reqParameter !== undefined && ts.isIdentifier(reqParameter) ? reqParameter.text : "req";
+  // Version 3: only the method and the route pattern (req.route?.path, e.g. "/users/:id") as context,
+  // the same allowlist the fix previews use. Never req.path or req.originalUrl (paths and query
+  // strings can carry tokens), and never pino-http's req.log (it writes the whole request, headers
+  // included, unless redaction is configured). With an unpacked request parameter there is no context.
+  const req = reqParameter !== undefined && ts.isIdentifier(reqParameter) ? reqParameter.text : undefined;
   const errKey = name === "err" ? "err" : `err: ${name}`;
-  const log = `logger.error({ ${errKey}, path: ${req}.path }, "request failed") (pino) or console.error(${name})`;
-  const noSecrets = "never log passwords, tokens or full request bodies.";
+  const context = req === undefined ? "" : `, method: ${req}.method, route: ${req}.route?.path`;
+  const log = `logger.error({ ${errKey}${context} }, "Request failed") (pino) or console.error(${name})`;
+  const noSecrets = "never log passwords, tokens, full request bodies or URLs (paths and query strings can carry tokens).";
 
   let text: string;
   if (handler.kind === "error-middleware") {

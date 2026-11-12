@@ -49,6 +49,8 @@ Scan options:
                            (default: none, so findings alone never fail the scan)
   --format <text|json>     Report format (default: text). JSON includes warnings and skipped paths
   --output <file>          Write the report to this file instead of the terminal
+  --fix-preview            Show a proposed fix (a diff) under each LP003 finding. A preview only:
+                           LogPilot never changes your files
 
 Exit codes:
   0  the scan finished, and no finding is at or above --fail-on (by default: always)
@@ -97,6 +99,7 @@ function main(args: string[]): number {
         "fail-on": { type: "string" },
         format: { type: "string" },
         output: { type: "string" },
+        "fix-preview": { type: "boolean" },
       },
       allowPositionals: true, // positionals = plain words like "scan" and the path
     });
@@ -153,6 +156,11 @@ function main(args: string[]): number {
   if (format !== "text" && format !== "json") {
     return usageError(`--format must be text or json (got "${format}")`);
   }
+  const fixPreview = parsed.values["fix-preview"] === true;
+  if (fixPreview && format === "json") {
+    // The JSON report gets fixes with schema version 2; until then, refuse instead of leaving them out silently.
+    return usageError("--fix-preview works only with the text format for now");
+  }
   const output = parsed.values.output;
   if (output !== undefined && SOURCE_EXTENSIONS.has(path.extname(output).toLowerCase())) {
     // A typo such as "--output src/app.js" must never overwrite source code.
@@ -193,6 +201,7 @@ function main(args: string[]): number {
       exclude: [...(config?.exclude ?? []), ...cliExcludes],
       // Patterns are relative to the config file's folder; without one, to the scanned folder.
       excludeRoot: configFile === undefined ? undefined : path.dirname(configFile),
+      fixPreview,
     });
   } catch (error) {
     process.stderr.write(`Error: ${(error as Error).message}\n`);
@@ -236,6 +245,7 @@ function main(args: string[]): number {
         configFile: shownConfigFile,
         hiddenBelowMinSeverity: result.findings.length - shown.length,
         minSeverity,
+        fixPreview,
       },
     );
   }

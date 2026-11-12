@@ -4,23 +4,15 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { checkSourceFile, findSyntaxErrors, parseSource } from "./analyze.js";
 import { ExcludePatterns, fileSkipByContent, fileSkipByName, folderSkip } from "./file-selection.js";
-import * as lp001 from "./rules/lp001-empty-catch.js";
-import * as lp002 from "./rules/lp002-lost-error-cause.js";
-import * as lp003 from "./rules/lp003-unlogged-error-response.js";
-import { applySuppressions } from "./suppressions.js";
+import { attachFixPreviews } from "./fixes.js";
 import type { Finding, ScanWarning, SkippedPath, SuppressedFinding } from "./types.js";
+
+export { parseSource, RULES } from "./analyze.js";
 
 /** File extensions LogPilot scans (also used to refuse writing a report into a source file). */
 export const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"]);
-
-/** Every rule runs on every file. `version` changes when a rule's behaviour changes (see the rule files). */
-export const RULES = [
-  { id: lp001.RULE_ID, name: lp001.RULE_NAME, version: lp001.RULE_VERSION, check: lp001.checkEmptyCatch },
-  { id: lp002.RULE_ID, name: lp002.RULE_NAME, version: lp002.RULE_VERSION, check: lp002.checkLostErrorCause },
-  { id: lp003.RULE_ID, name: lp003.RULE_NAME, version: lp003.RULE_VERSION, check: lp003.checkUnloggedErrorResponse },
-];
-const KNOWN_RULE_IDS = RULES.map((rule) => rule.id);
 
 export interface ScanResult {
   filesScanned: number;
@@ -41,6 +33,8 @@ export interface ScanOptions {
   exclude?: readonly string[];
   /** The folder the exclude patterns are relative to. Default: the scanned folder (or the file's folder). */
   excludeRoot?: string;
+  /** Attach a proposed fix (or the reason there is none) to each finding. Never applied. Default: false. */
+  fixPreview?: boolean;
 }
 
 /**
@@ -117,11 +111,11 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
           "findings in this file may be incomplete",
       });
     }
-    const fileFindings = RULES.flatMap((rule) => rule.check(sourceFile, displayPath));
-    // List each file's findings from top to bottom, whichever rule produced them (then by rule ID,
-    // so the order is the same on every run).
-    fileFindings.sort((a, b) => a.line - b.line || a.column - b.column || (a.ruleId < b.ruleId ? -1 : 1));
-    const { kept, suppressed, warnings } = applySuppressions(sourceFile, displayPath, fileFindings, KNOWN_RULE_IDS);
+    const { kept, suppressed, warnings } = checkSourceFile(sourceFile, displayPath);
+    if (options.fixPreview) {
+      // Proposed fixes are made and checked in memory, from the text already read: nothing is written.
+      warnings.push(...attachFixPreviews(sourceFile, displayPath, kept, syntaxErrors.length > 0));
+    }
     result.findings.push(...kept);
     result.suppressed.push(...suppressed);
     result.warnings.push(...warnings);
@@ -144,42 +138,6 @@ interface WalkContext {
   defaultExcludes: boolean;
   excludes: ExcludePatterns;
   result: ScanResult;
-}
-
-/**
- * Turns source text into a syntax tree (AST). Read-only: it works on a string we already read.
- * TypeScript picks the right flavour (JS, JSX, TS or TSX) from the file extension.
- * The parser is error-tolerant: a file with a syntax error still produces a tree.
- */
-export function parseSource(fileName: string, text: string): ts.SourceFile {
-  return ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, /* setParentNodes */ true);
-}
-
-/**
- * The syntax errors TypeScript found while parsing `sourceFile`. The parser is error-tolerant, so
- * the file was still parsed, but the parts around an error may be missing or misread.
- * TypeScript only exposes these through a "Program"; this one contains just the file we already
- * parsed (no other files, no type libraries), so nothing is read or parsed a second time.
- */
-function findSyntaxErrors(sourceFile: ts.SourceFile): readonly ts.Diagnostic[] {
-  const sameFile = (name: string) => name.replace(/\\/g, "/") === sourceFile.fileName.replace(/\\/g, "/");
-  const host: ts.CompilerHost = {
-    getSourceFile: (name) => (sameFile(name) ? sourceFile : undefined),
-    fileExists: sameFile,
-    readFile: () => undefined,
-    writeFile: () => {}, // never called: we only ask for diagnostics, nothing is emitted
-    getDefaultLibFileName: () => "lib.d.ts",
-    getCurrentDirectory: () => "",
-    getCanonicalFileName: (name) => name,
-    useCaseSensitiveFileNames: () => true,
-    getNewLine: () => "\n",
-  };
-  const program = ts.createProgram({
-    rootNames: [sourceFile.fileName],
-    options: { noLib: true, noResolve: true, allowJs: true, types: [] },
-    host,
-  });
-  return program.getSyntacticDiagnostics(sourceFile);
 }
 
 /**

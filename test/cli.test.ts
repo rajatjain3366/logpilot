@@ -135,8 +135,11 @@ describe("CLI: scan", () => {
     //        + 3 (test-context-assertions) = 54
     // LP002: 14 (positive) + 2 (logged) + 3 (guarded) + 1 (commented) + 1 (nested) + 2 (no-binding-combined) = 23
     // LP003: 14 (positive) + 4 (client-errors-and-shapes) + 1 (error-middleware-shape) = 19
+    //        + 17 in fix/ (console-cases 12, axios 3, style 1, typescript 1) = 36
     // (Milestone 2.5 added 3 LP001 fixtures and 6 LP003 fixtures: 29 -> 38 files.)
-    expect(stdout.endsWith("Scanned 38 files, 96 findings (LP001: 54, LP002: 23, LP003: 19)\n")).toBe(true);
+    // CHANGED ON PURPOSE (Milestone 3): 4 fix-preview fixtures in test/fixtures/fix/: 38 -> 42 files,
+    // 17 more LP003 findings, and no LP001 or LP002 finding.
+    expect(stdout.endsWith("Scanned 42 files, 113 findings (LP001: 54, LP002: 23, LP003: 36)\n")).toBe(true);
   });
 
   it("scans a single file", () => {
@@ -170,7 +173,19 @@ describe("CLI: scan", () => {
     const after = fingerprintFolder(fixturesDir);
 
     expect(exitCode).toBe(1); // the scan really ran and found the positives
-    expect(Object.keys(before)).toHaveLength(38); // 29 + 3 LP001 and 6 LP003 fixtures added in Milestone 2.5
+    // CHANGED ON PURPOSE (Milestone 3): 4 fix-preview fixtures added in test/fixtures/fix/.
+    expect(Object.keys(before)).toHaveLength(42); // 29 + 3 LP001 and 6 LP003 (Milestone 2.5) + 4 fix (Milestone 3)
+    expect(after).toEqual(before);
+  });
+
+  it("does not create, delete or modify any file with --fix-preview either (fixes are only shown)", () => {
+    const before = fingerprintFolder(fixturesDir);
+    const { exitCode, stdout } = runCli(["scan", "test/fixtures", "--fix-preview", "--fail-on", "low"]);
+    const after = fingerprintFolder(fixturesDir);
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("Proposed fix (preview only, not applied)"); // fixes really were made
+    expect(stdout).toMatch(/Fix previews \(LP003 only\): [1-9]\d* available/);
     expect(after).toEqual(before);
   });
 });
@@ -459,10 +474,12 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
       // CHANGED ON PURPOSE (Milestone 2.5): LP001 changed behaviour, so its version went from 1 to 2.
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 was added.
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 case E severity went from medium to low: version 1 -> 2.
+      // CHANGED ON PURPOSE (Milestone 3): LP003's suggestion logs req.method and req.route?.path instead
+      // of req.path: version 2 -> 3.
       expect(report.rules).toEqual([
         { id: "LP001", name: "empty-catch", version: 2 },
         { id: "LP002", name: "lost-error-cause", version: 1 },
-        { id: "LP003", name: "unlogged-error-response", version: 2 },
+        { id: "LP003", name: "unlogged-error-response", version: 3 },
       ]);
       expect(report.summary.filesScanned).toBe(3);
       expect(report.findings.map((f: { file: string; line: number }) => `${f.file}:${f.line}`)).toEqual(["src/app.js:1"]);
@@ -538,5 +555,72 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
       expect(noFolder.exitCode).toBe(2);
       expect(noFolder.stderr).toContain('Error: could not write the report to "missing-folder/report.json"');
     });
+  });
+});
+
+describe("CLI: --fix-preview (Milestone 3)", () => {
+  const HANDLER = [
+    'const express = require("express");',
+    "const app = express();",
+    'app.get("/users/:id", async (req, res) => {',
+    "  try {",
+    "    res.json(await load(req.params.id));",
+    "  } catch (err) {",
+    '    res.status(500).json({ message: "Server error" });',
+    "  }",
+    "});",
+    "",
+  ].join("\n");
+
+  it("shows the proposed fix as a diff under the finding, and counts fixes in the summary", () => {
+    withProject({ "src/app.js": HANDLER }, (dir) => {
+      const { exitCode, stdout, stderr } = runCli(["scan", ".", "--fix-preview"], dir);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout).toContain(
+        [
+          "  Proposed fix (preview only, not applied): Log the caught error with console.error just before the",
+          "    error response on line 7.",
+          "    Logger: console.error (confidence low: no logger was found in this file, so the fix uses",
+          "      console.error, which every Node.js program has)",
+          "    --- a/src/app.js",
+          "    +++ b/src/app.js",
+          "    @@ -4,6 +4,7 @@",
+          "       try {",
+          "         res.json(await load(req.params.id));",
+          "       } catch (err) {",
+          '    +    console.error("Request failed:", { method: req.method, route: req.route?.path }, err);',
+          '         res.status(500).json({ message: "Server error" });',
+          "       }",
+          "     });",
+          "  Checked: the fixed code parses, the fix only adds code, it logs nothing but the error, req.method",
+          "           and req.route?.path, and after it this finding is gone and no other finding changes.",
+        ].join("\n"),
+      );
+      expect(stdout).toContain(
+        "Fix previews (LP003 only): 1 available, 0 not available. No file was changed: apply a fix yourself after reviewing it.",
+      );
+    });
+  });
+
+  it("shows the reason when there is no fix, and shows nothing about fixes without the flag", () => {
+    const clientError = HANDLER.replace("res.status(500)", "res.status(401)");
+    withProject({ "src/app.js": clientError }, (dir) => {
+      const withFlag = runCli(["scan", ".", "--fix-preview"], dir);
+      expect(withFlag.stdout).toContain("  No fix proposed: No fix for a 4xx answer (case E).");
+      expect(withFlag.stdout).toContain("Fix previews (LP003 only): 0 available, 1 not available.");
+
+      const withoutFlag = runCli(["scan", "."], dir);
+      expect(withoutFlag.stdout).not.toMatch(/fix proposed|Proposed fix|Fix previews/i);
+    });
+  });
+
+  it("refuses --fix-preview with --format json for now (exit code 2)", () => {
+    const { exitCode, stdout, stderr } = runCli(["scan", "test/fixtures/fix", "--fix-preview", "--format", "json"]);
+
+    expect(exitCode).toBe(2);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("Error: --fix-preview works only with the text format for now");
   });
 });

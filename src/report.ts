@@ -1,6 +1,7 @@
 // Report: turns scan results into readable text for the terminal.
 // Pure formatting: these functions return strings and never print anything themselves.
 
+import { FIXABLE_RULES } from "./fixes.js";
 import type { ScanResult } from "./scanner.js";
 import type { Finding, Severity, SkippedPath, SkipReason } from "./types.js";
 
@@ -23,6 +24,8 @@ export interface ReportOptions {
   /** How many findings were left out because of --min-severity, and the level used. */
   hiddenBelowMinSeverity?: number;
   minSeverity?: Severity;
+  /** The scan ran with --fix-preview: show the proposed fixes and count them in the summary. */
+  fixPreview?: boolean;
 }
 
 /** The full text report: every finding, then the summary. Ends with a newline. */
@@ -52,8 +55,38 @@ function formatFinding(finding: Finding): string {
     ...formatEvidence(finding),
     ...wrap(`Why: ${finding.explanation}`, "  ", "       "),
     ...wrap(`Fix: ${finding.suggestion}`, "  ", "       "),
+    ...formatFixPreview(finding),
   ].join("\n");
 }
+
+/**
+ * --fix-preview: the proposed fix under a finding of a rule that has fixes, e.g.
+ *   Proposed fix (preview only, not applied): Log the caught error with console.error ...
+ *     Logger: console.error (confidence low: no logger was found in this file, ...)
+ *     --- a/src/app.js
+ *     ...
+ *   Checked: ...
+ * or "No fix proposed: <reason>". Rules without fixes (LP001, LP002) show nothing here.
+ */
+function formatFixPreview(finding: Finding): string[] {
+  const fix = finding.fix;
+  if (fix === undefined || !FIXABLE_RULES.has(finding.ruleId)) return [];
+  if (fix.status === "not-available") return wrap(`No fix proposed: ${fix.reason ?? ""}`, "  ", "       ");
+  const lines = wrap(`Proposed fix (preview only, not applied): ${fix.description ?? ""}`, "  ", "    ");
+  if (fix.logger !== undefined) {
+    lines.push(...wrap(`Logger: ${fix.logger.call} (confidence ${fix.logger.confidence}: ${fix.logger.evidence})`, "    ", "      "));
+  }
+  // The diff is not word-wrapped: its lines are code.
+  lines.push(...(fix.diff ?? "").trimEnd().split("\n").map((line) => `    ${line}`));
+  for (const note of fix.notes) lines.push(...wrap(`Note: ${note}`, "  ", "        "));
+  lines.push(...wrap(`Checked: ${FIX_CHECKED}`, "  ", "           "));
+  return lines;
+}
+
+/** What every shown fix has passed (see fix-validate.ts). */
+const FIX_CHECKED =
+  "the fixed code parses, the fix only adds code, it logs nothing but the error, req.method and req.route?.path, " +
+  "and after it this finding is gone and no other finding changes.";
 
 /** Evidence lines with their line numbers in a right-aligned gutter. */
 function formatEvidence(finding: Finding): string[] {
@@ -89,6 +122,14 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
     );
   }
   if (options.configFile !== undefined) lines.push(`Config file: ${options.configFile}`);
+  if (options.fixPreview) {
+    const fixable = result.findings.filter((f) => FIXABLE_RULES.has(f.ruleId) && f.fix !== undefined);
+    const available = fixable.filter((f) => f.fix?.status === "available").length;
+    lines.push(
+      `Fix previews (LP003 only): ${available} available, ${fixable.length - available} not available. ` +
+        "No file was changed: apply a fix yourself after reviewing it.",
+    );
+  }
   return lines.join("\n");
 }
 

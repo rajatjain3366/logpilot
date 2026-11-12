@@ -213,13 +213,38 @@ describe("LP003 explanations and suggestions", () => {
     expect(positive[0].explanation).not.toContain("parameters only");
   });
 
+  // CHANGED ON PURPOSE (LP003 version 3, Milestone 3): the example logged `path: req.path`, and the
+  // safety sentence did not mention URLs. Paths and query strings can carry tokens (measured in the
+  // Milestone 3 spike), so the example now logs only req.method and the route pattern, the same
+  // allowlist the fix previews use.
   it("suggests logging with the real variable name, or next(err), and never logging secrets", () => {
-    expect(positive[0].suggestion).toContain("logger.error({ err, path: req.path }");
+    expect(positive[0].suggestion).toContain('logger.error({ err, method: req.method, route: req.route?.path }, "Request failed")');
     expect(positive[0].suggestion).toContain("next(err)");
-    expect(positive[0].suggestion).toContain("never log passwords, tokens or full request bodies");
-    expect(positive[2].suggestion).toContain("logger.error({ err: error, path: req.path }"); // catch (error)
+    expect(positive[0].suggestion).toContain(
+      "never log passwords, tokens, full request bodies or URLs (paths and query strings can carry tokens)",
+    );
+    expect(positive[2].suggestion).toContain("logger.error({ err: error, method: req.method, route: req.route?.path }"); // catch (error)
     expect(positive[1].suggestion).toContain("write `catch (err)`"); //                        catch {}
     expect(positive[0].suggestion).not.toContain("write `catch (err)`");
+  });
+
+  it("never suggests req.path, the URL or pino-http's req.log (they can write tokens to the logs)", () => {
+    for (const finding of [...positive, ...edge, ...middleware]) {
+      expect(finding.suggestion).not.toMatch(/req\.path|originalUrl|req\.url|req\.log|\.log\./);
+    }
+  });
+
+  it("leaves the request context out when the request parameter is unpacked", () => {
+    const code = [
+      'const express = require("express");',
+      "const app = express();",
+      'app.get("/", async ({ params }, res) => {',
+      "  try { await work(params.id); } catch (err) { res.status(500).end(); }",
+      "});",
+    ].join("\n");
+    const [finding] = runOnCode("a.js", code);
+
+    expect(finding.suggestion).toContain('logger.error({ err }, "Request failed")');
   });
 
   it("adapts the suggestion to the case", () => {

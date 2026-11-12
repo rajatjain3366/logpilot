@@ -54,8 +54,12 @@ src/
   config.ts                        finds, reads and checks logpilot.config.json
   file-selection.ts                which folders and files are skipped, and why
   node-version.ts                  the supported Node.js versions
-  scanner.ts                       finds files, parses them into syntax trees, runs the rules
+  scanner.ts                       finds files and reads them, skips what should not be scanned
+  analyze.ts                       one file's text: parse it, run every rule, apply suppressions
   suppressions.ts                  logpilot-ignore comments: which findings they hide, and warnings
+  fixes.ts                         --fix-preview: attaches a checked fix (or why there is none) to findings
+  fix-edits.ts                     applies text edits to a string in memory; unified diffs
+  fix-validate.ts                  checks a proposed fix before it is shown (parses, safe names, rules re-run)
   severity.ts                      severity levels, --min-severity and --fail-on checks
   report.ts                        formats findings as readable text
   report-json.ts                   the JSON report (--format json, schema version 1)
@@ -65,6 +69,7 @@ src/
   rules/lp002-lost-error-cause.ts  rule LP002
   rules/express.ts                 recognises Express handlers and error middleware (used by LP003)
   rules/lp003-unlogged-error-response.ts  rule LP003
+  rules/lp003-fix.ts               proposed fixes for LP003: where the log line goes and what it says
 test/
   lp001-empty-catch.test.ts        rule tests for LP001
   lp002-lost-error-cause.test.ts   rule tests for LP002
@@ -79,9 +84,14 @@ test/
   report.test.ts                   text report format
   report-json.test.ts              JSON report shape, counts and ordering
   cli.test.ts                      end-to-end tests of the built CLI, incl. "scan changes no files"
+  fix-edits.test.ts                applying edits, and the unified diff format
+  fix-validate.test.ts             fix validation, including "never logs secrets"
+  lp003-fix.test.ts                LP003 fix previews: placement, style, names, axios, no-fix reasons
+  no-write.test.ts                 the fix-preview modules import no file-writing function
   fixtures/positive/               code that MUST be reported
   fixtures/edge/                   tricky code: reported, often with lower severity or confidence
   fixtures/negative/               code that NO rule may report
+  fixtures/fix/                    code for the fix-preview tests (reported by LP003)
 docs/
   evaluation.md                    measured precision on real projects, with every labelled finding
   eval-data/                       labels, sealed files, protocols and scripts behind evaluation.md
@@ -95,7 +105,9 @@ docs/
   cases, often reported with lower severity or confidence) or `test/fixtures/negative/` (no rule
   may report it). Each rule's tests run it over every file in `fixtures/negative/`.
 - The end-to-end test in `test/cli.test.ts` checks that a scan creates, deletes or changes no
-  file. Keep it passing.
+  file, with and without `--fix-preview`. Keep it passing.
+- A CRLF test file would be turned into LF by git (see `.gitattributes`), so CRLF inputs are built
+  as strings inside the tests instead of fixture files.
 - If you change `docs/evaluation.md` or anything in `docs/eval-data/`, also run the cross-check
   scripts (they need no `npm install`):
 

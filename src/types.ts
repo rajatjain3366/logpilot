@@ -28,6 +28,46 @@ export interface Finding {
   explanation: string;
   /** What to do about it. */
   suggestion: string;
+  /** The proposed fix, only when the scan ran with --fix-preview. A preview: nothing is ever applied. */
+  fix?: FixPreview;
+}
+
+/**
+ * One change to a file's text: the characters from `start` up to (not including) `end` are
+ * replaced by `newText`. Offsets count JavaScript string characters (UTF-16 code units) in the
+ * ORIGINAL text, as read from the file. start === end means a pure insertion.
+ */
+export interface TextEdit {
+  start: number;
+  end: number;
+  newText: string;
+}
+
+/** Which logger a fix writes to. */
+export type LoggerKind = "console" | "pino" | "winston" | "bunyan" | "project";
+
+/** A proposed fix for one finding (--fix-preview). LogPilot shows it and never applies it. */
+export interface FixPreview {
+  status: "available" | "not-available";
+  /** Why there is no fix (status "not-available"). */
+  reason?: string;
+  /** What the fix does, in one sentence. */
+  description?: string;
+  logger?: {
+    kind: LoggerKind;
+    /** The call the fix makes, e.g. "console.error". */
+    call: string;
+    /** How sure LogPilot is that this is the logger the project itself uses. */
+    confidence: Confidence;
+    /** Why this logger was chosen. */
+    evidence: string;
+  };
+  /** Things to check before applying the fix by hand. */
+  notes: string[];
+  /** The edits, as offsets into the original file text. They never overlap. */
+  edits: TextEdit[];
+  /** A unified diff of the edits, for reading (line endings shown as plain new lines). */
+  diff?: string;
 }
 
 /** Why LogPilot did not scan a file or folder. */
@@ -59,7 +99,7 @@ export interface SuppressedFinding {
 
 /** A problem that did not stop the scan. */
 export interface ScanWarning {
-  type: "read-error" | "syntax-error" | "unused-exclude" | "invalid-suppression" | "unused-suppression";
+  type: "read-error" | "syntax-error" | "unused-exclude" | "invalid-suppression" | "unused-suppression" | "fix-validation-failed";
   /** The file or folder concerned, as shown in the report, if there is one. */
   file?: string;
   /** 1-based line, for syntax errors. */
