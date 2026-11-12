@@ -1,0 +1,3 @@
+# Store every text file with LF line endings, on every operating system.
+# (Git for Windows defaults to converting files to CRLF on checkout.)
+* text=auto eol=lf

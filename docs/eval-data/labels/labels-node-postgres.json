@@ -1,0 +1,8 @@
+{
+  "node-postgres/packages/pg-query-stream/test/async-iterator.ts:99": "FP",
+  "node-postgres/packages/pg/bench-pipelining.js:7": "Debatable",
+  "node-postgres/packages/pg/lib/defaults.js:6": "FP",
+  "node-postgres/packages/pg/lib/index.js:42": "FP",
+  "node-postgres/packages/pg/test/integration/gh-issues/3772-tests.js:52": "FP",
+  "node-postgres/packages/pg/test/integration/gh-issues/3772-tests.js:156": "FP"
+}

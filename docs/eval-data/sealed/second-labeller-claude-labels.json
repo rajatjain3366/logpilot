@@ -1,0 +1,62 @@
+[
+  {
+    "number": 1,
+    "finding": "node-mongodb-native/src/cmap/auth/scram.ts:252",
+    "rule": "LP002",
+    "claudeLabel": "Debatable"
+  },
+  {
+    "number": 2,
+    "finding": "node-mongodb-native/src/collection.ts:338",
+    "rule": "LP002",
+    "claudeLabel": "Debatable"
+  },
+  {
+    "number": 3,
+    "finding": "node-mongodb-native/test/integration/crud/bulk.test.ts:1760",
+    "rule": "LP001",
+    "claudeLabel": "FP"
+  },
+  {
+    "number": 4,
+    "finding": "node-mongodb-native/test/integration/node-specific/abort_signal.test.ts:288",
+    "rule": "LP001",
+    "claudeLabel": "FP"
+  },
+  {
+    "number": 5,
+    "finding": "node-mongodb-native/test/mongodb_bundled.ts:8",
+    "rule": "LP002",
+    "claudeLabel": "TP"
+  },
+  {
+    "number": 6,
+    "finding": "node-mongodb-native/test/tools/runner/filters/crypt_shared_filter.ts:30",
+    "rule": "LP001",
+    "claudeLabel": "FP"
+  },
+  {
+    "number": 7,
+    "finding": "node-mongodb-native/test/tools/unified-spec-runner/operations.ts:228",
+    "rule": "LP001",
+    "claudeLabel": "Debatable"
+  },
+  {
+    "number": 8,
+    "finding": "node-mongodb-native/test/tools/unified-spec-runner/operations.ts:240",
+    "rule": "LP001",
+    "claudeLabel": "Debatable"
+  },
+  {
+    "number": 9,
+    "finding": "node-mongodb-native/test/tools/unified-spec-runner/operations.ts:901",
+    "rule": "LP001",
+    "claudeLabel": "FP"
+  },
+  {
+    "number": 10,
+    "finding": "node-mongodb-native/test/unit/client-side-encryption/state_machine.test.ts:886",
+    "rule": "LP001",
+    "claudeLabel": "FP"
+  }
+]

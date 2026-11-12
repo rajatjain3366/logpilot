@@ -1,0 +1,21 @@
+{
+  "knex/bin/cli.js:155": "FP",
+  "knex/bin/utils/cli-config-utils.js:187": "Debatable",
+  "knex/lib/dialects/mssql/transaction.js:129": "FP",
+  "knex/lib/dialects/postgres/index.js:135": "FP",
+  "knex/lib/migrations/migrate/Migrator.js:574": "Debatable",
+  "knex/scripts/stress-test/knex-stress-test.js:137": "FP",
+  "knex/scripts/stress-test/mysql2-random-hanging-every-now-and-then.js:89": "FP",
+  "knex/scripts/stress-test/mysql2-sudden-exit-without-error.js:17": "FP",
+  "knex/scripts/stress-test/reconnect-test-mysql-based-drivers.js:120": "FP",
+  "knex/test/integration/execution/transaction.js:797": "FP",
+  "knex/test/integration2/dialects/mariadb.spec.js:168": "FP",
+  "knex/test/integration2/pool/connection-pool.spec.js:80": "FP",
+  "knex/test/integration2/query/misc/additional.spec.js:190": "FP",
+  "knex/test/unit/client/connection-pool.js:217": "TP",
+  "knex/test/unit/client/connection-pool.js:291": "TP",
+  "knex/test/unit/client/connection-pool.js:364": "TP",
+  "knex/test/unit/knex.js:790": "FP",
+  "knex/test/unit/knex.js:808": "FP",
+  "knex/test/unit/knex.js:827": "FP"
+}

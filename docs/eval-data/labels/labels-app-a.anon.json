@@ -1,0 +1,13 @@
+{
+  "beginner/app-a/backend/src/controllers/orderController.js:984": "TP",
+  "beginner/app-a/backend/src/controllers/reportController.js:268": "Debatable",
+  "beginner/app-a/frontend/src/components/DashboardLayout.jsx:115": "FP",
+  "beginner/app-a/frontend/src/components/DashboardLayout.jsx:131": "FP",
+  "beginner/app-a/frontend/src/components/DashboardLayout.jsx:136": "FP",
+  "beginner/app-a/frontend/src/pages/KitchenDisplay.jsx:186": "FP",
+  "beginner/app-a/frontend/src/pages/KitchenDisplay.jsx:203": "FP",
+  "beginner/app-a/frontend/src/pages/KitchenDisplay.jsx:209": "FP",
+  "beginner/app-a/frontend/src/pages/WaiterScreen.jsx:173": "FP",
+  "beginner/app-a/frontend/src/pages/WaiterScreen.jsx:190": "FP",
+  "beginner/app-a/frontend/src/pages/WaiterScreen.jsx:196": "FP"
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "n": 1,
+    "finding": "node-mongodb-native/src/cmap/auth/scram.ts:252",
+    "label": "FP"
+  },
+  {
+    "n": 2,
+    "finding": "node-mongodb-native/src/collection.ts:338",
+    "label": "FP"
+  },
+  {
+    "n": 3,
+    "finding": "node-mongodb-native/test/integration/crud/bulk.test.ts:1760",
+    "label": "FP"
+  },
+  {
+    "n": 4,
+    "finding": "node-mongodb-native/test/integration/node-specific/abort_signal.test.ts:288",
+    "label": "FP"
+  },
+  {
+    "n": 5,
+    "finding": "node-mongodb-native/test/mongodb_bundled.ts:8",
+    "label": "TP"
+  },
+  {
+    "n": 6,
+    "finding": "node-mongodb-native/test/tools/runner/filters/crypt_shared_filter.ts:30",
+    "label": "Debatable"
+  },
+  {
+    "n": 7,
+    "finding": "node-mongodb-native/test/tools/unified-spec-runner/operations.ts:228",
+    "label": "FP"
+  },
+  {
+    "n": 8,
+    "finding": "node-mongodb-native/test/tools/unified-spec-runner/operations.ts:240",
+    "label": "FP"
+  },
+  {
+    "n": 9,
+    "finding": "node-mongodb-native/test/tools/unified-spec-runner/operations.ts:901",
+    "label": "FP"
+  },
+  {
+    "n": 10,
+    "finding": "node-mongodb-native/test/unit/client-side-encryption/state_machine.test.ts:886",
+    "label": "FP"
+  }
+]

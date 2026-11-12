@@ -1,0 +1,82 @@
+[
+  {
+    "file": "sealed/second-labeller-claude-labels.json",
+    "sha256": "054b7661286f6a479bc96a41c26dd6d8675b13b88e86fb5cc4f097157dd4c35a",
+    "anonymized": false,
+    "citedSha256": "054b7661286f6a479bc96a41c26dd6d8675b13b88e86fb5cc4f097157dd4c35a"
+  },
+  {
+    "file": "protocols/beginner-selection-protocol.md",
+    "sha256": "56373c5b3e484efe3e2e19342f8b34adc1918cc2fec35f6a804ade94ebdb9375",
+    "anonymized": false
+  },
+  {
+    "file": "labels/labels-vite.json",
+    "sha256": "1d95d9d3397cafa1cae5b12efc76fffeaee7cc4deb3aa12ea1a5da9c41c7a349",
+    "anonymized": false
+  },
+  {
+    "file": "labels/labels-mongoose.json",
+    "sha256": "21ca8aa7c69a7a6603d4b2ed2e1dcb14fa3cf8fbfd879c1c569679db4cf87b06",
+    "anonymized": false
+  },
+  {
+    "file": "labels/labels-mongodb.json",
+    "sha256": "7402582a47e0f0b1d86159951218ada14033251d010597eab25cbe9261d80fd0",
+    "anonymized": false
+  },
+  {
+    "file": "labels/labels-knex.json",
+    "sha256": "359e7b52f6179add209b192f5b35c7ac7eb71702f0a70b09eae2af2e9f582d3e",
+    "anonymized": false
+  },
+  {
+    "file": "labels/labels-node-postgres.json",
+    "sha256": "b1ee6ba908e034f864b29e5d81b5d0129410f3f80a02a916542f3547b0198922",
+    "anonymized": false
+  },
+  {
+    "file": "protocols/lp003-selection-protocol.anon.md",
+    "sha256": "e8c19e3d60c0dbbd7d124677bee9dce959fa1cea9c55de15b12630556e147091",
+    "anonymized": true,
+    "originalSha256": "e76ff9f4254ed10d68657812821482e6c124085d6bda1f59540d8b3e21b9d3df",
+    "citedSha256": "e76ff9f4254ed10d68657812821482e6c124085d6bda1f59540d8b3e21b9d3df"
+  },
+  {
+    "file": "sealed/lp003-recall-classification.anon.json",
+    "sha256": "a16563d52067d3e0262a1e641fac7ae22c8afb44e355369c72189bc979086984",
+    "anonymized": true,
+    "originalSha256": "601dd9cef982d7119d8f98e2099798a31749408e8e6e1df390bae564c879e043",
+    "citedSha256": "601dd9cef982d7119d8f98e2099798a31749408e8e6e1df390bae564c879e043"
+  },
+  {
+    "file": "sealed/lp003-second-labeller-claude-labels.anon.json",
+    "sha256": "2adce72208e743b5e4b4b18370c34d5ec732b2d8f54d26996bd39c55710363a4",
+    "anonymized": true,
+    "originalSha256": "cfdf8870eafcfeee4126b6b60422d066a430e415941ee8ca31798556673f91c3",
+    "citedSha256": "cfdf8870eafcfeee4126b6b60422d066a430e415941ee8ca31798556673f91c3"
+  },
+  {
+    "file": "labels/labels-app-a.anon.json",
+    "sha256": "7f7c563b420467dcdcfa873b949173a43f51bf63dd05355fe37baac56588a60d",
+    "anonymized": true,
+    "originalSha256": "b8505212430ba6a6dcd30ece08e3d0a1004a2735e1268a4be9044b3976b8f096"
+  },
+  {
+    "file": "labels/labels-lp003-heldout.anon.json",
+    "sha256": "659d8095ccbcf3886e9d4b1d0e459693e5ffa54ef38d446c2d7b7961e647bf20",
+    "anonymized": true,
+    "originalSha256": "6fa0a680b287204f7108085592a95fafaf01517a847e00d4624755ae5b20aec2"
+  },
+  {
+    "file": "second-labeller/lp003-owner-labels.anon.json",
+    "sha256": "3b00625d3193d3e671b2ea34b434f62ecc6bc9e1b2ef69a794a9c2bf83b78709",
+    "anonymized": true,
+    "originalSha256": "463bad800063e6871049a344a6affac55470d035fb7795d1a8c9bbeb78727d7f"
+  },
+  {
+    "file": "second-labeller/round2-owner-labels.json",
+    "sha256": "464cc8fe7b6a5251147e648347c65f70063c45227ab02c6bc5b6e20aedb2baf5",
+    "anonymized": false
+  }
+]

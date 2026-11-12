@@ -1,0 +1,45 @@
+{
+  "name": "logpilot",
+  "version": "0.3.0",
+  "description": "Diagnostic-readiness auditor for JavaScript/TypeScript projects: finds code that would leave you without evidence when it fails in production.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "logpilot": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": "^22.20.0 || >=24.8.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && npm run build && vitest run --reporter=verbose"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rajatjain3366/logpilot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rajatjain3366/logpilot/issues"
+  },
+  "homepage": "https://github.com/rajatjain3366/logpilot#readme",
+  "keywords": [
+    "static-analysis",
+    "error-handling",
+    "observability",
+    "logging",
+    "cli",
+    "typescript"
+  ],
+  "dependencies": {
+    "typescript": "~6.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "vitest": "5.0.4"
+  }
+}

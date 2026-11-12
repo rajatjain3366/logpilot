@@ -1,0 +1,32 @@
+{
+  // Main TypeScript config: used by `npm run typecheck` and by your editor.
+  // It checks src/ AND test/ but writes no files. The build uses tsconfig.build.json.
+  "compilerOptions": {
+    // Modern JavaScript that Node 22+ runs natively (no down-levelling).
+    "target": "ES2023",
+
+    // Follow Node's real ESM rules (relative imports need the .js extension).
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    // Load the Node type definitions (@types/node, pinned to v22 = our minimum).
+    "types": ["node"],
+
+    // Catch as many mistakes as possible at compile time.
+    "strict": true,
+
+    // Allow `import ts from "typescript"` (TypeScript itself is a CommonJS package).
+    "esModuleInterop": true,
+
+    // Don't type-check other packages' .d.ts files (faster, avoids their issues).
+    "skipLibCheck": true,
+
+    "forceConsistentCasingInFileNames": true,
+
+    // Type-check only; never write .js files from this config.
+    "noEmit": true
+  },
+  "include": ["src", "test"],
+  // Fixtures are sample input for the scanner (deliberately odd code), never compiled.
+  "exclude": ["test/fixtures"]
+}

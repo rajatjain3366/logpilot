@@ -1,0 +1,422 @@
+[
+  {
+    "n": 1,
+    "candidate": "app-i/backend/src/controllers/urlController.js:25",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 2,
+    "candidate": "app-j/backend/middleware/verifyToken.js:15",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 3,
+    "candidate": "app-l/backend/src/app.ts:72",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 4,
+    "candidate": "app-l/backend/src/routes/api.ts:177",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 5,
+    "candidate": "app-l/backend/src/routes/api.ts:399",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 6,
+    "candidate": "app-m/backend/src/controllers/user.controllers.js:41",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged (message)"
+  },
+  {
+    "n": 7,
+    "candidate": "app-m/backend/src/middlewares/user.verification.js:22",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged (message)"
+  },
+  {
+    "n": 8,
+    "candidate": "app-n/backend/src/controllers/authController.ts:106",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 9,
+    "candidate": "app-n/backend/src/controllers/boardController.ts:135",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 10,
+    "candidate": "app-n/backend/src/controllers/boardController.ts:251",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 11,
+    "candidate": "app-n/backend/src/controllers/boardController.ts:379",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 12,
+    "candidate": "app-n/backend/src/middleware/validate.ts:9",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 13,
+    "candidate": "app-o/server/controllers/user.controller.ts:175",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "passed to next()"
+  },
+  {
+    "n": 14,
+    "candidate": "app-p/backend/routes/admin.js:80",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 15,
+    "candidate": "app-p/backend/routes/categories.js:28",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 16,
+    "candidate": "app-p/backend/routes/categories.js:75",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 17,
+    "candidate": "app-p/backend/routes/checkout.js:191",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 18,
+    "candidate": "app-p/backend/routes/orders.js:107",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 19,
+    "candidate": "app-p/backend/routes/products.js:144",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 20,
+    "candidate": "app-p/backend/server.js:59",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "no response in the catch; a new error is passed to next()"
+  },
+  {
+    "n": 21,
+    "candidate": "app-q/apps/server/src/controllers/category.ts:24",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 22,
+    "candidate": "app-q/apps/server/src/controllers/order.ts:45",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 23,
+    "candidate": "app-q/apps/server/src/controllers/order.ts:111",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 24,
+    "candidate": "app-q/apps/server/src/controllers/order.ts:225",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 25,
+    "candidate": "app-q/apps/server/src/controllers/product.ts:32",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 26,
+    "candidate": "app-q/apps/server/src/controllers/product.ts:117",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 27,
+    "candidate": "app-q/apps/server/src/controllers/product.ts:239",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 28,
+    "candidate": "app-q/apps/server/src/controllers/product.ts:353",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 29,
+    "candidate": "app-q/apps/server/src/controllers/user.ts:88",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 30,
+    "candidate": "app-q/apps/server/src/controllers/user.ts:177",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 31,
+    "candidate": "app-q/apps/server/src/controllers/user.ts:295",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 32,
+    "candidate": "app-q/apps/server/src/controllers/user.ts:365",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 33,
+    "candidate": "app-q/apps/server/src/controllers/user.ts:477",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 34,
+    "candidate": "app-r/Backend/src/controllers/adminAuditController.js:83",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 35,
+    "candidate": "app-r/Backend/src/controllers/adminController.js:167",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 36,
+    "candidate": "app-r/Backend/src/controllers/adminController.js:362",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 37,
+    "candidate": "app-r/Backend/src/controllers/adminController.js:619",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 38,
+    "candidate": "app-r/Backend/src/controllers/adminController.js:913",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 39,
+    "candidate": "app-r/Backend/src/controllers/adminRedemptionController.js:551",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 40,
+    "candidate": "app-r/Backend/src/controllers/adminSettingsController.js:86",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged (message)"
+  },
+  {
+    "n": 41,
+    "candidate": "app-r/Backend/src/controllers/authController.js:225",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 42,
+    "candidate": "app-r/Backend/src/controllers/payoutController.js:163",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 43,
+    "candidate": "app-r/Backend/src/controllers/payoutController.js:439",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 44,
+    "candidate": "app-r/Backend/src/controllers/redemptionController.js:371",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 45,
+    "candidate": "app-r/Backend/src/controllers/redemptionController.js:532",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged (message)"
+  },
+  {
+    "n": 46,
+    "candidate": "app-r/Backend/src/controllers/walletController.js:32",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 47,
+    "candidate": "app-r/Backend/src/middleware/authMiddleware.js:42",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 48,
+    "candidate": "app-s/backend/src/controllers/authController.js:362",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "passed to next()"
+  },
+  {
+    "n": 49,
+    "candidate": "app-s/backend/src/middleware/requireAuth.js:18",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 50,
+    "candidate": "app-s/backend/src/routes/recommendRoutes.js:135",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged (message) by logger.warn"
+  },
+  {
+    "n": 51,
+    "candidate": "app-t/server/middleware/auth.js:132",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 52,
+    "candidate": "app-t/server/routes/apps.js:772",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "promise .catch that logs"
+  },
+  {
+    "n": 53,
+    "candidate": "app-t/server/routes/auth.js:415",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 54,
+    "candidate": "app-t/server/routes/branding.js:36",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 55,
+    "candidate": "app-t/server/routes/branding.js:86",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 56,
+    "candidate": "app-t/server/routes/logs.js:374",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 57,
+    "candidate": "app-t/server/routes/plugins.js:66",
+    "instance": true,
+    "kind": "try/catch",
+    "reason": "handler responds; error not logged, passed on, rethrown or given to another function"
+  },
+  {
+    "n": 58,
+    "candidate": "app-t/server/routes/users.js:89",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "logged"
+  },
+  {
+    "n": 59,
+    "candidate": "app-t/src/pages/Admin.jsx:82",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "frontend code"
+  },
+  {
+    "n": 60,
+    "candidate": "app-t/src/pages/Customization.jsx:212",
+    "instance": false,
+    "kind": "try/catch",
+    "reason": "frontend code"
+  }
+]

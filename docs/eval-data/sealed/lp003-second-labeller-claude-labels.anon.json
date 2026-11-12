@@ -1,0 +1,62 @@
+[
+  {
+    "n": 1,
+    "finding": "app-p/backend/routes/auth.js:92",
+    "level": "high/high",
+    "claudeLabel": "TP"
+  },
+  {
+    "n": 2,
+    "finding": "app-p/backend/routes/categories.js:75",
+    "level": "high/high",
+    "claudeLabel": "TP"
+  },
+  {
+    "n": 3,
+    "finding": "app-p/backend/routes/checkout.js:191",
+    "level": "high/high",
+    "claudeLabel": "TP"
+  },
+  {
+    "n": 4,
+    "finding": "app-p/backend/routes/orders.js:54",
+    "level": "high/high",
+    "claudeLabel": "TP"
+  },
+  {
+    "n": 5,
+    "finding": "app-p/backend/routes/products.js:181",
+    "level": "high/high",
+    "claudeLabel": "TP"
+  },
+  {
+    "n": 6,
+    "finding": "app-t/server/routes/plugins.js:66",
+    "level": "medium/medium",
+    "claudeLabel": "Debatable"
+  },
+  {
+    "n": 7,
+    "finding": "app-r/Backend/src/controllers/authController.js:225",
+    "level": "high/medium",
+    "claudeLabel": "TP"
+  },
+  {
+    "n": 8,
+    "finding": "app-m/backend/src/middlewares/user.verification.js:11",
+    "level": "medium/medium",
+    "claudeLabel": "Debatable"
+  },
+  {
+    "n": 9,
+    "finding": "app-q/apps/server/src/controllers/order.ts:111",
+    "level": "high/medium",
+    "claudeLabel": "TP"
+  },
+  {
+    "n": 10,
+    "finding": "app-i/backend/src/controllers/urlController.js:39",
+    "level": "high/medium",
+    "claudeLabel": "TP"
+  }
+]

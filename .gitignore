@@ -1,0 +1,18 @@
+# Installed packages — recreate with `npm install`
+node_modules/
+
+# Compiled output — recreate with `npm run build`
+dist/
+
+# Package tarballs created by `npm pack`
+*.tgz
+
+# npm debug logs
+npm-debug.log*
+
+# Claude Code's per-machine permission settings (personal, not shared)
+.claude/settings.local.json
+
+# OS / editor clutter
+.DS_Store
+Thumbs.db

@@ -1,0 +1,21 @@
+{
+  "mongoose/docs/js/theme-toggle.js:27": "FP",
+  "mongoose/docs/source/index.js:7": "Debatable",
+  "mongoose/lib/tracing.js:8": "FP",
+  "mongoose/lib/types/documentArray/methods/index.js:150": "FP",
+  "mongoose/scripts/loadSponsorData.js:53": "FP",
+  "mongoose/scripts/website.js:40": "Debatable",
+  "mongoose/scripts/website.js:343": "FP",
+  "mongoose/lib/helpers/query/cast$expr.js:158": "Debatable",
+  "mongoose/lib/helpers/query/cast$expr.js:199": "Debatable",
+  "mongoose/lib/helpers/query/cast$expr.js:210": "Debatable",
+  "mongoose/lib/helpers/query/cast$expr.js:260": "Debatable",
+  "mongoose/lib/helpers/query/cast$expr.js:266": "Debatable",
+  "mongoose/lib/helpers/query/castUpdate.js:593": "Debatable",
+  "mongoose/lib/helpers/query/castUpdate.js:651": "Debatable",
+  "mongoose/lib/query.js:927": "Debatable",
+  "mongoose/lib/query.js:961": "Debatable",
+  "mongoose/lib/query.js:1809": "Debatable",
+  "mongoose/lib/query.js:1816": "Debatable",
+  "mongoose/lib/schema/string.js:614": "TP"
+}

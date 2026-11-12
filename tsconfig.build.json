@@ -1,0 +1,13 @@
+{
+  // Build config: compiles only src/*.ts into dist/*.js (what users run).
+  // Inherits every setting from tsconfig.json, then turns output back on.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    // Emit .js.map files so stack traces point back to .ts line numbers.
+    "sourceMap": true
+  },
+  "include": ["src"]
+}
