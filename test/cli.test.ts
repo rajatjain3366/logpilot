@@ -139,7 +139,9 @@ describe("CLI: scan", () => {
     // (Milestone 2.5 added 3 LP001 fixtures and 6 LP003 fixtures: 29 -> 38 files.)
     // CHANGED ON PURPOSE (Milestone 3): 4 fix-preview fixtures in test/fixtures/fix/: 38 -> 42 files,
     // 17 more LP003 findings, and no LP001 or LP002 finding.
-    expect(stdout.endsWith("Scanned 42 files, 113 findings (LP001: 54, LP002: 23, LP003: 36)\n")).toBe(true);
+    // CHANGED ON PURPOSE (Milestone 3, Checkpoint 3): fix/loggers/ adds 7 fixtures and 3 logger modules
+    // (42 -> 52 files) and one LP003 finding per fixture (36 -> 43).
+    expect(stdout.endsWith("Scanned 52 files, 120 findings (LP001: 54, LP002: 23, LP003: 43)\n")).toBe(true);
   });
 
   it("scans a single file", () => {
@@ -174,7 +176,8 @@ describe("CLI: scan", () => {
 
     expect(exitCode).toBe(1); // the scan really ran and found the positives
     // CHANGED ON PURPOSE (Milestone 3): 4 fix-preview fixtures added in test/fixtures/fix/.
-    expect(Object.keys(before)).toHaveLength(42); // 29 + 3 LP001 and 6 LP003 (Milestone 2.5) + 4 fix (Milestone 3)
+    // CHANGED ON PURPOSE (Milestone 3, Checkpoint 3): 10 more in test/fixtures/fix/loggers/.
+    expect(Object.keys(before)).toHaveLength(52); // 29 + 3 LP001 and 6 LP003 (Milestone 2.5) + 14 fix (Milestone 3)
     expect(after).toEqual(before);
   });
 
@@ -470,7 +473,8 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
       expect(exitCode).toBe(0);
       expect(stderr).toBe(""); // the syntax-error warning is in the JSON instead
       const report = JSON.parse(stdout);
-      expect(report.schemaVersion).toBe(1);
+      // CHANGED ON PURPOSE (Milestone 3): schema version 2 adds fix, config.fixPreview and summary.fixes.
+      expect(report.schemaVersion).toBe(2);
       // CHANGED ON PURPOSE (Milestone 2.5): LP001 changed behaviour, so its version went from 1 to 2.
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 was added.
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 case E severity went from medium to low: version 1 -> 2.
@@ -598,8 +602,9 @@ describe("CLI: --fix-preview (Milestone 3)", () => {
           "           and req.route?.path, and after it this finding is gone and no other finding changes.",
         ].join("\n"),
       );
+      // CHANGED ON PURPOSE (Milestone 3, Checkpoint 3): one summary line over 100 columns became two.
       expect(stdout).toContain(
-        "Fix previews (LP003 only): 1 available, 0 not available. No file was changed: apply a fix yourself after reviewing it.",
+        "Fix previews (LP003 only): 1 available, 0 not available.\nNo file was changed: apply a fix yourself after reviewing it.",
       );
     });
   });
@@ -616,11 +621,44 @@ describe("CLI: --fix-preview (Milestone 3)", () => {
     });
   });
 
-  it("refuses --fix-preview with --format json for now (exit code 2)", () => {
-    const { exitCode, stdout, stderr } = runCli(["scan", "test/fixtures/fix", "--fix-preview", "--format", "json"]);
+  // CHANGED ON PURPOSE (Milestone 3, Checkpoint 3): --fix-preview with --format json was refused until
+  // schema version 2 existed. Now the JSON report includes each fix.
+  it("includes the fixes in the JSON report, with their edits and diff", () => {
+    withProject({ "src/app.js": HANDLER }, (dir) => {
+      const { exitCode, stdout, stderr } = runCli(["scan", ".", "--fix-preview", "--format", "json"], dir);
 
-    expect(exitCode).toBe(2);
-    expect(stdout).toBe("");
-    expect(stderr).toContain("Error: --fix-preview works only with the text format for now");
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe("");
+      const report = JSON.parse(stdout);
+      expect(report.summary.fixes).toEqual({ available: 1, notAvailable: 0 });
+      const { fix } = report.findings[0];
+      expect(fix.status).toBe("available");
+      expect(fix.logger).toMatchObject({ kind: "console", call: "console.error", confidence: "low" });
+      const inserted = '    console.error("Request failed:", { method: req.method, route: req.route?.path }, err);\n';
+      const at = HANDLER.indexOf("    res.status(500)");
+      expect(fix.edits).toEqual([{ start: at, end: at, newText: inserted }]);
+      expect(fix.diff).toContain("+++ b/src/app.js");
+    });
+  });
+
+  it("reads an imported logger module only when it is inside the scanned folder", () => {
+    const routes = HANDLER.replace('const app = express();', 'const logger = require("../lib/logger");\nconst app = express();');
+    const files = { "src/routes/users.js": routes, "src/lib/logger.js": 'module.exports = require("pino")();\n' };
+    withProject(files, (dir) => {
+      const loggerOf = (target: string) => JSON.parse(runCli(["scan", target, "--fix-preview", "--format", "json"], dir).stdout).findings[0].fix.logger;
+
+      expect(loggerOf("src")).toMatchObject({ kind: "pino", call: "logger.error" }); //   ../lib/logger.js is inside src/
+      expect(loggerOf("src/routes")).toMatchObject({ kind: "console" }); //                ... but outside src/routes/
+      expect(loggerOf("src/routes").evidence).toContain('this file imports `logger` from "../lib/logger"');
+    });
+  });
+
+  it("writes fix: null and summary.fixes: null in JSON without --fix-preview", () => {
+    withProject({ "src/app.js": HANDLER }, (dir) => {
+      const report = JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout);
+      expect(report.config.fixPreview).toBe(false);
+      expect(report.summary.fixes).toBeNull();
+      expect(report.findings[0].fix).toBeNull();
+    });
   });
 });

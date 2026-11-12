@@ -1,14 +1,23 @@
 // JSON report (--format json): the same scan result as the text report, for tools to read.
 //
 // The output is stable: the same code gives byte-identical JSON on every run and every OS
-// (fixed key order, sorted lists, "/" in paths, no timestamps). Incompatible changes to this
-// shape will get a new schemaVersion, so tools can check what they are reading.
+// (fixed key order, sorted lists, "/" in paths, no timestamps).
+//
+// Versioning policy (from schema version 2 on):
+// - Adding a key does NOT change schemaVersion. Tools reading the report should ignore keys they
+//   do not know.
+// - Removing or renaming a key, or changing what a key means or what values it can hold, DOES
+//   change schemaVersion.
+// Version 2 (Milestone 3): every finding has a `fix` key, config has `fixPreview`, and the summary
+// has `fixes`. Version 1 promised that every object always has all its keys, so a reader could
+// check the exact set; that is why adding these keys changed the version this one time.
 
+import { FIXABLE_RULES } from "./fixes.js";
 import type { ScanResult } from "./scanner.js";
 import type { FailOn } from "./severity.js";
-import type { Finding, ScanWarning, Severity } from "./types.js";
+import type { Finding, FixPreview, ScanWarning, Severity } from "./types.js";
 
-export const JSON_SCHEMA_VERSION = 1;
+export const JSON_SCHEMA_VERSION = 2;
 
 /** What the JSON report needs besides the scan result: settings, rules and the outcome. */
 export interface JsonReportContext {
@@ -21,6 +30,8 @@ export interface JsonReportContext {
     exclude: string[];
     minSeverity: Severity;
     failOn: FailOn;
+    /** The scan ran with --fix-preview. */
+    fixPreview: boolean;
   };
   /** The findings at or above minSeverity (the ones that are shown). */
   shown: Finding[];
@@ -41,6 +52,7 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
       exclude: [...context.config.exclude],
       minSeverity: context.config.minSeverity,
       failOn: context.config.failOn,
+      fixPreview: context.config.fixPreview,
     },
     summary: {
       filesScanned: result.filesScanned,
@@ -66,6 +78,8 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
       filesWithSyntaxErrors: new Set(result.warnings.filter((w) => w.type === "syntax-error").map((w) => w.file)).size,
       warnings: result.warnings.length,
       exitCode: context.exitCode,
+      // null without --fix-preview (nothing was tried); counts only rules that can have fixes (LP003).
+      fixes: context.config.fixPreview ? fixCounts(context.shown) : null,
     },
     findings: context.shown.map(findingJson),
     suppressed: result.suppressed.map((s) => ({ finding: findingJson(s.finding), reason: s.reason, commentLine: s.commentLine })),
@@ -93,7 +107,31 @@ function findingJson(f: Finding) {
     evidence: f.evidence,
     explanation: f.explanation,
     suggestion: f.suggestion,
+    fix: f.fix === undefined ? null : fixJson(f.fix),
   };
+}
+
+/** A proposed fix with its keys always in the same order; missing values are null. */
+function fixJson(fix: FixPreview) {
+  return {
+    status: fix.status,
+    reason: fix.reason ?? null,
+    description: fix.description ?? null,
+    logger:
+      fix.logger === undefined
+        ? null
+        : { kind: fix.logger.kind, call: fix.logger.call, confidence: fix.logger.confidence, evidence: fix.logger.evidence },
+    notes: [...fix.notes],
+    edits: fix.edits.map((edit) => ({ start: edit.start, end: edit.end, newText: edit.newText })),
+    diff: fix.diff ?? null,
+  };
+}
+
+/** How many shown findings of rules with fixes have a fix, and how many do not. */
+function fixCounts(shown: Finding[]): { available: number; notAvailable: number } {
+  const fixable = shown.filter((f) => FIXABLE_RULES.has(f.ruleId) && f.fix !== undefined);
+  const available = fixable.filter((f) => f.fix?.status === "available").length;
+  return { available, notAvailable: fixable.length - available };
 }
 
 /** Warnings sorted by file, then line, then type and message, so the order never depends on timing. */

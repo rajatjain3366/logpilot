@@ -1,7 +1,7 @@
 // Tests for the text report format.
 
 import { describe, expect, it } from "vitest";
-import { formatReport } from "../src/report.js";
+import { formatReport, reportWidth } from "../src/report.js";
 import type { Finding, SkippedPath } from "../src/types.js";
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
@@ -128,5 +128,98 @@ describe("formatReport: what was not scanned (Milestone 2)", () => {
         "",
       ].join("\n"),
     );
+  });
+});
+
+describe("formatReport: width (Milestone 3)", () => {
+  it("wraps at 100 columns when not in a terminal or when writing a file, and at the terminal's width otherwise", () => {
+    expect(reportWidth({ isTTY: false, columns: 80 }, false)).toBe(100); // piped
+    expect(reportWidth({ isTTY: true, columns: 80 }, true)).toBe(100); //   --output file
+    expect(reportWidth({}, false)).toBe(100);
+    expect(reportWidth({ isTTY: true, columns: 80 }, false)).toBe(79); //   one less than the terminal
+    expect(reportWidth({ isTTY: true, columns: 40 }, false)).toBe(60); //   never narrower than 60
+    expect(reportWidth({ isTTY: true, columns: 200 }, false)).toBe(100); // never wider than 100
+  });
+
+  it("wraps text at the given width, but never wraps evidence or diff lines (they are code)", () => {
+    const longCode = `    res.status(500).json({ message: "${"x".repeat(90)}" });`;
+    const diff = `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -9,1 +9,2 @@\n+${longCode}\n ${longCode}\n`;
+    const finding = makeFinding({
+      evidence: longCode,
+      explanation: "word ".repeat(40).trim(),
+      ruleId: "LP003",
+      fix: { status: "available", description: "Log it.", notes: [], edits: [], diff },
+    });
+    const report = formatReport({ filesScanned: 1, findings: [finding], suppressed: [], warnings: [], skipped: [] }, { width: 60, fixPreview: true });
+    const lines = report.split("\n");
+
+    for (const line of lines.filter((l) => l.includes("word"))) expect(line.length).toBeLessThanOrEqual(60);
+    expect(lines).toContain(`    9 | ${longCode}`); // one evidence line: a 1-digit gutter
+    expect(lines).toContain(`    +${longCode}`);
+    expect(lines).toContain(`     ${longCode}`);
+  });
+});
+
+describe("formatReport: concise output by default, full text with --verbose (Milestone 3)", () => {
+  const explanation = "This catch sends an error (status 500). You will not see why. Loggers do not help."; // fits on one line
+  const suggestion = "Log the error, e.g. console.error(err). Never log tokens.";
+  const findings = [
+    makeFinding({ ruleId: "LP003", line: 10, explanation, suggestion }),
+    // Same kind: another status and another variable name, so only the first sentence differs.
+    makeFinding({ ruleId: "LP003", line: 20, explanation: explanation.replace("500", "503"), suggestion: suggestion.replace("(err)", "(error)") }),
+    // Same kind, with one extra sentence in the suggestion.
+    makeFinding({ ruleId: "LP003", line: 30, explanation, suggestion: `${suggestion} Write \`catch (err)\` first.` }),
+    // Another file: the reference names the file.
+    makeFinding({ ruleId: "LP003", file: "src/b.ts", line: 5, explanation, suggestion }),
+    // Another kind (different second sentence): full text again.
+    makeFinding({ ruleId: "LP003", line: 40, explanation: "This catch sends the error to the client. Your logs keep nothing.", suggestion }),
+  ];
+  const result = { filesScanned: 2, findings, suppressed: [], warnings: [], skipped: [] };
+  const whyAndFix = (report: string) => report.split("\n").filter((l) => /^ {2}(Why|Fix|Why and fix):/.test(l));
+
+  it("prints the full text the first time a rule and case appear, then one line that points back to it", () => {
+    expect(whyAndFix(formatReport(result))).toEqual([
+      `  Why: ${explanation}`,
+      `  Fix: ${suggestion}`,
+      "  Why and fix: same as for line 10 above.",
+      "  Why: same as for line 10 above.",
+      "  Fix: Write `catch (err)` first. (The rest: same as for line 10 above.)",
+      "  Why and fix: same as for src/a.ts:10 above.",
+      "  Why: This catch sends the error to the client. Your logs keep nothing.",
+      `  Fix: ${suggestion}`,
+    ]);
+  });
+
+  it("repeats the full text for every finding with --verbose", () => {
+    const lines = whyAndFix(formatReport(result, { verbose: true }));
+    expect(lines).toHaveLength(10);
+    expect(lines.filter((l) => l.includes("same as"))).toEqual([]);
+  });
+
+  it("shows a repeated fix note, no-fix reason and logger once, then refers back; the diff is always shown", () => {
+    const fix = (line: number) =>
+      makeFinding({
+        ruleId: "LP003",
+        line,
+        fix: {
+          status: "available",
+          description: `Log it before line ${line}.`,
+          logger: { kind: "console", call: "console.error", confidence: "low", evidence: "no logger" },
+          notes: ["The response is unchanged."],
+          edits: [],
+          diff: `--- a/src/a.ts\n+++ b/src/a.ts\n@@ -${line},1 +${line},2 @@\n+console.error(err);\n x\n`,
+        },
+      });
+    const noFix = (line: number) => makeFinding({ ruleId: "LP003", line, fix: { status: "not-available", reason: "No fix for a 4xx answer.", notes: [], edits: [] } });
+    const report = formatReport({ filesScanned: 1, findings: [fix(10), fix(20), noFix(30), noFix(40)], suppressed: [], warnings: [], skipped: [] }, { fixPreview: true });
+
+    expect(report).toContain("    Logger: console.error (confidence low: no logger)");
+    expect(report).toContain("    Logger: same as for line 10 above.");
+    expect(report).toContain("  Note: The response is unchanged.");
+    expect(report).toContain("  Note: same as for line 10 above.");
+    expect(report).toContain("  Checked: same as for line 10 above.");
+    expect(report).toContain("    @@ -20,1 +20,2 @@");
+    expect(report).toContain("  No fix proposed: No fix for a 4xx answer.");
+    expect(report).toContain("  No fix proposed: same as for line 30 above.");
   });
 });

@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { type Config, ConfigError, findConfigFile, loadConfig } from "./config.js";
 import { checkExcludePattern } from "./file-selection.js";
 import { unsupportedNodeVersion } from "./node-version.js";
-import { formatReport } from "./report.js";
+import { formatReport, reportWidth } from "./report.js";
 import { formatJson } from "./report-json.js";
 import { RULES, scanPath, SOURCE_EXTENSIONS } from "./scanner.js";
 import {
@@ -51,6 +51,8 @@ Scan options:
   --output <file>          Write the report to this file instead of the terminal
   --fix-preview            Show a proposed fix (a diff) under each LP003 finding. A preview only:
                            LogPilot never changes your files
+  --verbose                Repeat the full explanation for every finding (by default, later
+                           findings of the same kind refer back to the first one)
 
 Exit codes:
   0  the scan finished, and no finding is at or above --fail-on (by default: always)
@@ -100,6 +102,7 @@ function main(args: string[]): number {
         format: { type: "string" },
         output: { type: "string" },
         "fix-preview": { type: "boolean" },
+        verbose: { type: "boolean" },
       },
       allowPositionals: true, // positionals = plain words like "scan" and the path
     });
@@ -157,10 +160,6 @@ function main(args: string[]): number {
     return usageError(`--format must be text or json (got "${format}")`);
   }
   const fixPreview = parsed.values["fix-preview"] === true;
-  if (fixPreview && format === "json") {
-    // The JSON report gets fixes with schema version 2; until then, refuse instead of leaving them out silently.
-    return usageError("--fix-preview works only with the text format for now");
-  }
   const output = parsed.values.output;
   if (output !== undefined && SOURCE_EXTENSIONS.has(path.extname(output).toLowerCase())) {
     // A typo such as "--output src/app.js" must never overwrite source code.
@@ -227,6 +226,7 @@ function main(args: string[]): number {
         exclude: [...(config?.exclude ?? []), ...cliExcludes],
         minSeverity,
         failOn,
+        fixPreview,
       },
       shown,
       hiddenBelowMinSeverity: result.findings.length - shown.length,
@@ -246,6 +246,9 @@ function main(args: string[]): number {
         hiddenBelowMinSeverity: result.findings.length - shown.length,
         minSeverity,
         fixPreview,
+        verbose: parsed.values.verbose === true,
+        // In a terminal, wrap at its width (so words are not cut in the middle); otherwise at 100.
+        width: reportWidth(process.stdout, output !== undefined),
       },
     );
   }

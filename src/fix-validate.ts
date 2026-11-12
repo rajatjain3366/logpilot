@@ -22,6 +22,8 @@ export interface FixSafety {
   requestName?: string;
   /** The logger the fix calls, e.g. "console" or "logger". */
   loggerName: string;
+  /** Another key the error may be logged under, copied from the project's own log calls (e.g. "error"). */
+  errorKey?: string;
 }
 
 /** The only request properties a fix may read: req.method and req.route?.path (the route pattern). */
@@ -126,11 +128,12 @@ function identifierProblem(identifier: ts.Identifier, fixed: ts.SourceFile, valu
       (ts.isIdentifier(object) && object.text === safety.loggerName && LOGGER_METHODS.has(name));
     return allowed ? undefined : `the fix's code would use ${parent.getText(fixed)}`;
   }
+  const keyAllowed = CONTEXT_KEYS.has(name) || name === safety.errorKey;
   if (ts.isPropertyAssignment(parent) && parent.name === identifier) {
-    return CONTEXT_KEYS.has(name) ? undefined : `the fix's code would log a field named "${name}"`;
+    return keyAllowed ? undefined : `the fix's code would log a field named "${name}"`;
   }
   if (ts.isShorthandPropertyAssignment(parent)) {
-    return name === safety.errorName && CONTEXT_KEYS.has(name) ? undefined : `the fix's code would log "${name}"`;
+    return name === safety.errorName && keyAllowed ? undefined : `the fix's code would log "${name}"`;
   }
   if (ts.isVariableDeclaration(parent) && ts.isCatchClause(parent.parent)) {
     return name === safety.errorName ? undefined : `the fix would name the caught error "${name}"`;

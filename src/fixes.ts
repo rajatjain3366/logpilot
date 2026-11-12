@@ -2,6 +2,8 @@
 // finding of one file. Every proposal is checked in memory (fix-validate.ts) before it is shown.
 // Nothing here writes to disk: a fix is only text edits and a diff, never applied to a file.
 
+import { lstatSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type ts from "typescript";
 import { unifiedDiff } from "./fix-edits.js";
 import { validateFix } from "./fix-validate.js";
@@ -20,17 +22,45 @@ const NO_FIX: Record<string, string> = {
     "No automatic fix from LogPilot: ESLint's preserve-caught-error rule offers one in your editor (it adds { cause: err }).",
 };
 
+/**
+ * A reader for logger detection (a relative import such as ./utils/logger). Read-only, and only
+ * regular files inside `scanRoot`, the folder being scanned: an import that leads outside it
+ * (../../shared/logger) or through a symbolic link is not read, like the scan itself, and the
+ * logger is then treated as unknown. Logger detection never follows more than one import.
+ */
+export function moduleReader(scanRoot: string): (absolutePath: string) => string | undefined {
+  return (absolutePath) => {
+    const relative = path.relative(scanRoot, absolutePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+    try {
+      return lstatSync(absolutePath).isFile() ? readFileSync(absolutePath, "utf8") : undefined;
+    } catch {
+      return undefined; // missing or unreadable
+    }
+  };
+}
+
 function notAvailable(reason: string): FixPreview {
   return { status: "not-available", reason, notes: [], edits: [] };
 }
 
 /**
  * Sets `fix` on every finding in `findings` (all from `sourceFile`). Returns warnings for fixes
- * that failed validation: those are LogPilot bugs, and the fix is not shown.
+ * that failed validation: those are LogPilot bugs, and the fix is not shown. `scanRoot` is the
+ * scanned folder: logger detection may read one imported module inside it (see moduleReader).
  */
-export function attachFixPreviews(sourceFile: ts.SourceFile, displayPath: string, findings: Finding[], hasSyntaxErrors: boolean): ScanWarning[] {
+export function attachFixPreviews(
+  sourceFile: ts.SourceFile,
+  displayPath: string,
+  findings: Finding[],
+  hasSyntaxErrors: boolean,
+  scanRoot: string = path.dirname(sourceFile.fileName),
+): ScanWarning[] {
   const warnings: ScanWarning[] = [];
-  const proposals = !hasSyntaxErrors && findings.some((f) => FIXABLE_RULES.has(f.ruleId)) ? proposeLp003Fixes(sourceFile) : new Map();
+  const proposals =
+    !hasSyntaxErrors && findings.some((f) => FIXABLE_RULES.has(f.ruleId))
+      ? proposeLp003Fixes(sourceFile, moduleReader(scanRoot))
+      : new Map();
   for (const finding of findings) {
     if (!FIXABLE_RULES.has(finding.ruleId)) {
       finding.fix = notAvailable(NO_FIX[finding.ruleId] ?? "No automatic fix for this rule.");

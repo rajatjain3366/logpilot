@@ -86,6 +86,8 @@ Scan options:
   --output <file>          Write the report to this file instead of the terminal
   --fix-preview            Show a proposed fix (a diff) under each LP003 finding. A preview only:
                            LogPilot never changes your files
+  --verbose                Repeat the full explanation for every finding (by default, later
+                           findings of the same kind refer back to the first one)
 ```
 
 ## Example output
@@ -132,6 +134,16 @@ test/fixtures/positive/lp002-options-mistake.ts:11:5
        decide what clients see in your error handler.
 ```
 
+**Concise by default.** The first finding of each rule and kind gets the full "Why" and "Fix".
+Later findings of the same kind get one line instead, such as
+`Why and fix: same as for line 14 above.`, plus any sentence of the fix that is new for them (for
+example LP002's rewritten `throw`). The evidence and any proposed fix are always shown in full.
+`--verbose` repeats the full text for every finding; the JSON report always has the full text.
+
+**Line width.** In a terminal, text is wrapped to the terminal's width (at least 60 and at most 100
+columns), so words are not cut in the middle. Piped or written to a file, it is wrapped at 100
+columns. Code (evidence and diffs) is never wrapped.
+
 The report goes to **stdout** (or to the `--output` file); errors and warnings go to **stderr**.
 A file with syntax errors is still scanned as far as possible, and LogPilot warns about it
 (`Warning: x.js: 1 syntax error (first at line 1: Expression expected.); findings in this file may be incomplete`)
@@ -140,8 +152,8 @@ and counts such files in the summary. Warnings do not change the exit code.
 ## Fix previews
 
 `--fix-preview` shows a proposed fix under each LP003 finding, as a diff. **It is only a preview:
-LogPilot never changes your files.** Review the fix and apply it yourself. For now it works with the
-text format only.
+LogPilot never changes your files.** Review the fix and apply it yourself. With `--format json`, each
+finding carries the fix as exact text edits (see [JSON output](#json-output)).
 
 ```text
   Proposed fix (preview only, not applied): Log the caught error with console.error just before the
@@ -175,11 +187,38 @@ another name if `err` is already used in the block.
   that it also logs those).
 - **Style:** the same indentation (tabs or spaces), line ending (LF or CRLF), quotes and
   semicolons as the file.
+- **A catch that already logs a message without the error** (`console.log("Login failed")`) gets
+  the error added to that call (`console.log("Login failed", err)`) instead of a second log line.
+  This is done only for `console`, when it is the only log call in the catch.
+
+**Which logger the fix uses.** The first of these that applies:
+
+| What LogPilot finds | The fix writes | Logger confidence |
+|---|---|---|
+| The file creates a pino logger at its top level (`const logger = pino()`) | `logger.error({ err, method: req.method, route: req.route?.path }, "Request failed")` | high |
+| The file creates a winston logger | ``logger.error(`Request failed: ${req.method} ${req.route?.path}`, err)`` | medium |
+| The file creates a bunyan logger (a `.child()` logger is preferred over its parent) | ``log.error(err, `Request failed: ${req.method} ${req.route?.path}`)`` | medium |
+| The file imports a logger from a relative module (`require("./utils/logger")`), and that module creates it with pino, winston or bunyan. LogPilot reads that one module, and no further, and only if it is inside the folder you scan (like the scan itself, it never reads outside that folder or follows symbolic links) | that library's form | medium |
+| The file imports a logger it cannot identify (`logger`, `log`, `appLogger`, ...) and already logs a caught error with `logger.error(...)` | a copy of that call's form | medium |
+| None of these | `console.error("Request failed:", { method: req.method, route: req.route?.path }, err)` | low |
+
+Each form was chosen by running the real libraries (pino 10, winston 3.19, bunyan 1.8) and
+checking what reached the log:
+
+- **pino** keeps the error's message, stack trace, `code` and `cause` only under the key `err`
+  (under `error`, the message and stack are lost).
+- **winston** loses the message and stack when the error is inside the metadata object
+  (`logger.error("msg", { err })`), so the fix passes it as its own argument. The cause's message
+  is not kept, and a custom format that prints only the message drops the stack; the fix says so.
+- **bunyan** keeps them when the error comes first. The cause is not kept; the fix says so.
+- **pino-http's `req.log` is never used.** By default it adds the whole request to every line,
+  including the `Authorization` header and the query string.
 - **The response is never changed.** If the error's message is sent to the client, or a failure
   answers 200 OK, the fix keeps that and adds a note: changing it changes what clients receive.
 
 **Before a fix is shown, LogPilot checks it in memory:** the fix only adds code; the fixed file
-parses; the added code uses nothing but the error, `req.method`, `req.route?.path` and the logger;
+parses; the added code uses nothing but the error, `req.method`, `req.route?.path` and the logger
+(and only the logger's `error` method);
 and when all rules run again, this finding is gone and nothing else changed (including what
 `logpilot-ignore` comments hide). A fix that fails a check is not shown, and LogPilot warns about it.
 
@@ -498,20 +537,20 @@ node dist/cli.js scan . --format json --output logpilot-report.json
 LogPilot refuses an `--output` file that ends in a JavaScript or TypeScript extension (`.js`, `.ts`,
 ...), so a typo can never overwrite source code.
 
-The report has this shape (schema version 1). The `summary` below is real: the MongoDB Node.js
+The report has this shape (schema version 2). The `summary` below is real: the MongoDB Node.js
 driver at the commit listed in [docs/evaluation.md](docs/evaluation.md), scanned with default
 settings (a library, so LP003 finds nothing there):
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "tool": { "name": "logpilot", "version": "0.3.0" },
   "rules": [
     { "id": "LP001", "name": "empty-catch", "version": 2 },
     { "id": "LP002", "name": "lost-error-cause", "version": 1 },
     { "id": "LP003", "name": "unlogged-error-response", "version": 3 }
   ],
-  "config": { "file": null, "defaultExcludes": true, "exclude": [], "minSeverity": "low", "failOn": "none" },
+  "config": { "file": null, "defaultExcludes": true, "exclude": [], "minSeverity": "low", "failOn": "none", "fixPreview": false },
   "summary": {
     "filesScanned": 737,
     "findings": 31,
@@ -523,7 +562,8 @@ settings (a library, so LP003 finds nothing there):
     "skippedFolders": { "default": 1, "userExclude": 0 },
     "filesWithSyntaxErrors": 0,
     "warnings": 0,
-    "exitCode": 0
+    "exitCode": 0,
+    "fixes": null
   },
   "findings": [],
   "suppressed": [],
@@ -536,14 +576,34 @@ settings (a library, so LP003 finds nothing there):
 
 | List | Keys |
 |---|---|
-| `findings` | `ruleId`, `ruleName`, `file`, `line`, `column`, `severity`, `confidence`, `evidence`, `explanation`, `suggestion` |
+| `findings` | `ruleId`, `ruleName`, `file`, `line`, `column`, `severity`, `confidence`, `evidence`, `explanation`, `suggestion`, `fix` |
 | `suppressed` | `finding` (as above), `reason`, `commentLine` |
 | `skipped` | `path`, `kind` (`file` or `folder`), `reason` (`default-folder`, `minified-name`, `minified-content`, `vendored-banner`, `user-exclude`), `detail` |
-| `warnings` | `type` (`read-error`, `syntax-error`, `unused-exclude`, `invalid-suppression`, `unused-suppression`), `file`, `line`, `message` |
+| `warnings` | `type` (`read-error`, `syntax-error`, `unused-exclude`, `invalid-suppression`, `unused-suppression`, `fix-validation-failed`), `file`, `line`, `message` |
 
-- **Versions.** `schemaVersion` will change when the shape changes in a way that could break a tool
-  reading it. Each rule's `version` goes up when that rule starts reporting different findings or
-  levels, so you can tell whether a change in results came from your code or from LogPilot.
+**Fixes in JSON.** Without `--fix-preview`, every finding has `"fix": null`, `config.fixPreview` is
+`false`, and `summary.fixes` is `null`. With it, `summary.fixes` is
+`{ "available": n, "notAvailable": m }` (LP003 findings only), and every finding has a `fix` object:
+
+| Key | Meaning |
+|---|---|
+| `status` | `"available"` or `"not-available"` (LP001 and LP002 findings are always `"not-available"`) |
+| `reason` | Why there is no fix, or `null` |
+| `description` | What the fix does, in one sentence, or `null` |
+| `logger` | `{ "kind", "call", "confidence", "evidence" }`: which logger the fix calls (`kind` is `console`, `pino`, `winston`, `bunyan` or `project`) and why, or `null` |
+| `notes` | Things to check before applying the fix (a list, may be empty) |
+| `edits` | The exact change: a list of `{ "start", "end", "newText" }`. `start` and `end` are positions in the original file text, counted in JavaScript string characters (UTF-16 code units), the same way as ESLint's fix ranges. Every edit is an insertion (`start` equals `end`), and edits never overlap: apply them from the last to the first |
+| `diff` | The same change as a unified diff, for reading. Line endings are shown as plain new lines; apply `edits`, not the diff |
+
+- **Versions.** Each rule's `version` goes up when that rule starts reporting different findings or
+  levels, or its explanation changes in a way that matters, so you can tell whether a change in
+  results came from your code or from LogPilot. For `schemaVersion`, the policy since version 2:
+  - **adding** a key does not change `schemaVersion`, so tools should ignore keys they do not know;
+  - **removing or renaming** a key, or changing what a key means or which values it can hold,
+    changes `schemaVersion`.
+  - Version 2 added `fix`, `config.fixPreview` and `summary.fixes`. Version 1 promised that every
+    object always has all its keys, so a tool could check the exact key set; that is why adding
+    keys changed the version this one time.
 - **Stable output.** The same code gives byte-identical JSON on every run: keys in a fixed order,
   sorted lists, `/` in paths, no timestamps. Every object always has all its keys: missing values
   are `null`, and counts of 0 are included.
@@ -640,7 +700,12 @@ We have not measured how many LogPilot findings these lint rules also report.
   URL, so LP003's fix previews skip `try` blocks that call axios. Other HTTP clients and SDKs (got,
   node-fetch, cloud SDKs) were not measured and may also put secrets in their errors. Check that
   your logger redacts them.
-- **Fix previews always use `console.error` for now,** even when the project has its own logger.
+- **Fix previews recognise only some loggers.** pino, winston and bunyan created at the top level of
+  the file, or in a relative module the file imports (one step: a module that re-exports a logger
+  from another file is not followed). Other loggers are used only when the file already logs a
+  caught error with them; otherwise the fix uses `console.error` and says why.
+- **A fix's log line keeps the error's cause only with console and pino.** With winston and bunyan,
+  the fix notes that `error.cause` is not logged.
 - **LP003's case E (4xx) has found no real problem so far,** only debatable cases such as
   authentication checks that answer 401. Its *low* severity was set after that measurement and has
   not been measured itself.

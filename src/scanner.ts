@@ -114,7 +114,9 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
     const { kept, suppressed, warnings } = checkSourceFile(sourceFile, displayPath);
     if (options.fixPreview) {
       // Proposed fixes are made and checked in memory, from the text already read: nothing is written.
-      warnings.push(...attachFixPreviews(sourceFile, displayPath, kept, syntaxErrors.length > 0));
+      // Logger detection may read one imported module, but only inside the scanned folder.
+      const scanRoot = stats.isDirectory() ? absoluteTarget : path.dirname(absoluteTarget);
+      warnings.push(...attachFixPreviews(sourceFile, displayPath, kept, syntaxErrors.length > 0, scanRoot));
     }
     result.findings.push(...kept);
     result.suppressed.push(...suppressed);

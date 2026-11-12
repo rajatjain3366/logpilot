@@ -15,6 +15,7 @@
 import ts from "typescript";
 import type { FixSafety } from "../fix-validate.js";
 import type { FixPreview, TextEdit } from "../types.js";
+import { chooseLogger, type LoggerChoice, type ReadFile } from "./loggers.js";
 import { findLp003Targets, type Lp003Target, reportedPosition, serverErrorResponses } from "./lp003-unlogged-error-response.js";
 
 /** A proposed fix for one LP003 finding, or the reason there is none. */
@@ -59,14 +60,23 @@ const NOTE_LOGS_EXPECTED =
 /** First characters of a line that would join it to the line before when there is no semicolon (ASI). */
 const ASI_HAZARD = /^[([`+\-/]/;
 
-/** Proposed fixes for every LP003 finding in the file, by "line:column" of the finding. */
-export function proposeLp003Fixes(sourceFile: ts.SourceFile): Map<string, Lp003Proposal> {
+/** Method names of a log call, as LP003 counts them (console.log, logger.error, ...). */
+const LOG_METHODS = new Set(["log", "error", "warn", "info", "debug", "trace", "fatal"]);
+
+/**
+ * Proposed fixes for every LP003 finding in the file, by "line:column" of the finding. `readFile`
+ * lets logger detection read one relative import (read-only); without it, only this file is used.
+ */
+export function proposeLp003Fixes(sourceFile: ts.SourceFile, readFile?: ReadFile): Map<string, Lp003Proposal> {
   const proposals = new Map<string, Lp003Proposal>();
+  const targets = findLp003Targets(sourceFile);
+  if (targets.length === 0) return proposals;
   const style = codeStyle(sourceFile);
   const axios = axiosNames(sourceFile);
-  for (const target of findLp003Targets(sourceFile)) {
+  const logger = chooseLogger(sourceFile, readFile);
+  for (const target of targets) {
     const { line, column } = reportedPosition(target.reported, sourceFile);
-    proposals.set(`${line}:${column}`, propose(target, sourceFile, style, axios));
+    proposals.set(`${line}:${column}`, propose(target, sourceFile, style, axios, logger));
   }
   return proposals;
 }
@@ -75,7 +85,13 @@ function no(reason: string): Lp003Proposal {
   return { ok: false, reason };
 }
 
-function propose(target: Lp003Target & { analysis: { statuses: (number | "unknown")[] } }, sourceFile: ts.SourceFile, style: CodeStyle, axios: Set<string>): Lp003Proposal {
+function propose(
+  target: Lp003Target & { analysis: { statuses: (number | "unknown")[] } },
+  sourceFile: ts.SourceFile,
+  style: CodeStyle,
+  axios: Set<string>,
+  logger: LoggerChoice,
+): Lp003Proposal {
   const text = sourceFile.text;
   if (target.theCase === "E") return no(REASON_CLIENT_ERROR);
 
@@ -97,7 +113,7 @@ function propose(target: Lp003Target & { analysis: { statuses: (number | "unknow
   let errorName = target.errorName;
   const bindingAdded = target.catchClause !== undefined && target.catchClause.variableDeclaration === undefined;
   if (bindingAdded) {
-    errorName = freeName(block, [requestName, target.handler.res, "console"]);
+    errorName = freeName(block, [requestName, target.handler.res, "console", logger.name]);
     const afterCatch = target.catchClause!.getStart(sourceFile) + "catch".length;
     edits.push({ start: afterCatch, end: afterCatch, newText: ` (${errorName})` });
   } else if (errorName === undefined) {
@@ -113,12 +129,36 @@ function propose(target: Lp003Target & { analysis: { statuses: (number | "unknow
 
   // The log line must mean what it says: no local variable may hide the names it uses.
   const declared = declaredNames(block);
-  for (const name of [requestName, bindingAdded ? undefined : errorName, "console"]) {
+  for (const name of [requestName, bindingAdded ? undefined : errorName, "console", logger.name]) {
     if (name !== undefined && declared.has(name)) {
       return no(`No fix: this block declares its own variable named \`${name}\`, which the log line would use. Add the log line by hand.`);
     }
   }
   if (declaresAnywhere(sourceFile, "console")) return no("No fix: this file declares its own `console`, so LogPilot cannot be sure what console.error does here.");
+
+  // Case C: the catch already logs a message with console, without the error. Add the error to that
+  // call instead of writing a second log line.
+  if (target.theCase === "C") {
+    const appended = appendToConsoleCall(block, target.handler.res, errorName!, sourceFile);
+    if (appended !== undefined) {
+      edits.push(appended.edit);
+      let description = `Add the caught error to the existing ${appended.call} call on line ${appended.line}.`;
+      if (bindingAdded) description += ` The catch gets a variable for the error: catch (${errorName}).`;
+      return {
+        ok: true,
+        edits,
+        description,
+        logger: {
+          kind: "console",
+          call: appended.call,
+          confidence: "high",
+          evidence: `this catch already logs with ${appended.call} on line ${appended.line}; the fix adds the error to that call`,
+        },
+        notes,
+        safety: { errorName: errorName!, requestName, loggerName: "console" },
+      };
+    }
+  }
 
   // Where: before the one statement that sends a 5xx response, else at the start of the block.
   const responseStatements = [
@@ -139,7 +179,7 @@ function propose(target: Lp003Target & { analysis: { statuses: (number | "unknow
     }
   }
 
-  const statement = logStatement(errorName!, requestName, style.quote);
+  const statement = logStatement(logger, errorName!, requestName, style.quote);
   const lineStart = text.lastIndexOf("\n", position - 1) + 1;
   const indent = text.slice(lineStart, position);
   if (/^[ \t]*$/.test(indent) && lineStart > 0) {
@@ -158,8 +198,9 @@ function propose(target: Lp003Target & { analysis: { statuses: (number | "unknow
     : target.catchClause === undefined
       ? "at the start of the error middleware"
       : "at the start of the catch block";
-  let description = `Log the caught error with console.error ${where}.`;
+  let description = `Log the caught error with ${logger.name}.error ${where}.`;
   if (bindingAdded) description += ` The catch gets a variable for the error: catch (${errorName}).`;
+  notes.push(...logger.notes);
   if (!beforeResponse && target.analysis.statuses.some((s) => s !== "unknown" && s >= 400 && s < 500)) notes.push(NOTE_LOGS_EXPECTED);
   if (target.theCase === "B") notes.push(NOTE_ERROR_SENT);
   if (target.theCase === "D") notes.push(NOTE_NO_STATUS);
@@ -168,22 +209,74 @@ function propose(target: Lp003Target & { analysis: { statuses: (number | "unknow
     ok: true,
     edits,
     description,
-    logger: {
-      kind: "console",
-      call: "console.error",
-      confidence: "low",
-      evidence: "no logger was found in this file, so the fix uses console.error, which every Node.js program has",
-    },
+    logger: { kind: logger.kind, call: `${logger.name}.error`, confidence: logger.confidence, evidence: logger.evidence },
     notes,
-    safety: { errorName: errorName!, requestName, loggerName: "console" },
+    safety: { errorName: errorName!, requestName, loggerName: logger.name, errorKey: logger.errorKey },
   };
 }
 
-/** The log statement, without a semicolon. */
-function logStatement(errorName: string, requestName: string | undefined, quote: string): string {
-  const message = `${quote}Request failed:${quote}`;
-  if (requestName === undefined) return `console.error(${message}, ${errorName})`;
-  return `console.error(${message}, { method: ${requestName}.method, route: ${requestName}.route?.path }, ${errorName})`;
+/**
+ * The log call, without a semicolon, in the logger's form (see loggers.ts for why each library
+ * gets its form). Context is only the method and the route pattern; with an unpacked request
+ * parameter there is none.
+ */
+function logStatement(logger: LoggerChoice, errorName: string, requestName: string | undefined, quote: string): string {
+  const call = `${logger.name}.error`;
+  const message = `${quote}Request failed${quote}`;
+  const messageWithContext = requestName === undefined ? message : "`Request failed: ${" + requestName + ".method} ${" + requestName + ".route?.path}`";
+  const context = requestName === undefined ? "" : `, method: ${requestName}.method, route: ${requestName}.route?.path`;
+  const key = logger.errorKey ?? "err";
+  const errorProperty = key === errorName ? errorName : `${key}: ${errorName}`;
+  switch (logger.form) {
+    case "console":
+      return requestName === undefined
+        ? `console.error(${quote}Request failed:${quote}, ${errorName})`
+        : `console.error(${quote}Request failed:${quote}, { method: ${requestName}.method, route: ${requestName}.route?.path }, ${errorName})`;
+    case "object-first":
+      return `${call}({ ${errorProperty}${context} }, ${message})`;
+    case "message-first":
+      return `${call}(${messageWithContext}, ${errorName})`;
+    case "message-object":
+      return `${call}(${message}, { ${errorProperty}${context} })`;
+    case "error-first":
+      return `${call}(${errorName}, ${messageWithContext})`;
+    case "error-only":
+      return `${call}(${errorName})`;
+  }
+}
+
+/**
+ * Case C: the one log call in the block, when it is console.<method>(...) without the error, and
+ * the edit that adds the error as its last argument. Undefined when there is not exactly one log
+ * call, or it is not console's (another logger's argument order is not known).
+ */
+function appendToConsoleCall(
+  block: ts.Block,
+  res: string,
+  errorName: string,
+  sourceFile: ts.SourceFile,
+): { edit: TextEdit; call: string; line: number } | undefined {
+  const logCalls: ts.CallExpression[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && LOG_METHODS.has(node.expression.name.text)) {
+      const receiver = node.expression.expression;
+      if (!(ts.isIdentifier(receiver) && receiver.text === res)) logCalls.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(block, visit);
+  if (logCalls.length !== 1) return undefined;
+  const [call] = logCalls;
+  const callee = call.expression as ts.PropertyAccessExpression;
+  if (!ts.isIdentifier(callee.expression) || callee.expression.text !== "console") return undefined;
+  const args = call.arguments;
+  const at = args.length === 0 ? args.pos : args[args.length - 1].getEnd();
+  return {
+    edit: { start: at, end: at, newText: args.length === 0 ? errorName : `, ${errorName}` },
+    call: `console.${callee.name.text}`,
+    line: sourceFile.getLineAndCharacterOfPosition(call.getStart(sourceFile)).line + 1,
+  };
 }
 
 /** The nearest statement that contains `node`, inside `block`. */

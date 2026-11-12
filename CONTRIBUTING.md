@@ -62,7 +62,7 @@ src/
   fix-validate.ts                  checks a proposed fix before it is shown (parses, safe names, rules re-run)
   severity.ts                      severity levels, --min-severity and --fail-on checks
   report.ts                        formats findings as readable text
-  report-json.ts                   the JSON report (--format json, schema version 1)
+  report-json.ts                   the JSON report (--format json, schema version 2)
   types.ts                         shared data types (findings, skipped paths, warnings)
   rules/shared.ts                  helpers used by several rules (catch variable, comments, evidence)
   rules/lp001-empty-catch.ts       rule LP001
@@ -70,6 +70,7 @@ src/
   rules/express.ts                 recognises Express handlers and error middleware (used by LP003)
   rules/lp003-unlogged-error-response.ts  rule LP003
   rules/lp003-fix.ts               proposed fixes for LP003: where the log line goes and what it says
+  rules/loggers.ts                 which logger a fix calls (pino, winston, bunyan, the project's, console)
 test/
   lp001-empty-catch.test.ts        rule tests for LP001
   lp002-lost-error-cause.test.ts   rule tests for LP002
@@ -92,6 +93,7 @@ test/
   fixtures/edge/                   tricky code: reported, often with lower severity or confidence
   fixtures/negative/               code that NO rule may report
   fixtures/fix/                    code for the fix-preview tests (reported by LP003)
+  fixtures/fix/loggers/            one fixture per logger style, and the logger modules they import
 docs/
   evaluation.md                    measured precision on real projects, with every labelled finding
   eval-data/                       labels, sealed files, protocols and scripts behind evaluation.md

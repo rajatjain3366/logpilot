@@ -5,8 +5,20 @@ import { FIXABLE_RULES } from "./fixes.js";
 import type { ScanResult } from "./scanner.js";
 import type { Finding, Severity, SkippedPath, SkipReason } from "./types.js";
 
-/** Long explanation/suggestion text is word-wrapped at this many columns. */
-const WRAP_WIDTH = 100;
+/** Long explanation/suggestion text is word-wrapped at this many columns when not in a terminal. */
+export const DEFAULT_WIDTH = 100;
+/** In a narrow terminal, text is still wrapped at least this wide. */
+const MIN_WIDTH = 60;
+
+/**
+ * The width to wrap text at. In a terminal (a "TTY"): its width, between 60 and 100 columns, minus
+ * one, because some terminals add an empty line when a line fills the last column. Piped or written
+ * to a file (`> report.txt`, `--output`): always 100, so saved reports look the same everywhere.
+ */
+export function reportWidth(stdout: { isTTY?: boolean; columns?: number }, toFile: boolean): number {
+  if (toFile || stdout.isTTY !== true || stdout.columns === undefined || stdout.columns <= 0) return DEFAULT_WIDTH;
+  return Math.max(MIN_WIDTH, Math.min(DEFAULT_WIDTH, stdout.columns - 1));
+}
 
 /** How each skip reason is named in the summary, in the order it is listed there. */
 const SKIP_REASON_LABELS: [SkipReason[], string][] = [
@@ -26,11 +38,34 @@ export interface ReportOptions {
   minSeverity?: Severity;
   /** The scan ran with --fix-preview: show the proposed fixes and count them in the summary. */
   fixPreview?: boolean;
+  /** Repeat the full explanation, suggestion and fix notes for every finding (--verbose). */
+  verbose?: boolean;
+  /** Wrap text at this many columns (see reportWidth). Default: 100. */
+  width?: number;
+}
+
+/**
+ * What the report has already printed in full, so later findings of the same kind can refer back
+ * to it in one line ("concise" output, the default). Keys map to the location printed first.
+ */
+interface ReportState {
+  width: number;
+  verbose: boolean;
+  /** Rule + case -> where its full explanation was printed, and the suggestion printed there. */
+  cases: Map<string, { location: string; suggestion: string }>;
+  /** A fix note, a no-fix reason or a logger line -> where it was printed in full. */
+  texts: Map<string, string>;
 }
 
 /** The full text report: every finding, then the summary. Ends with a newline. */
 export function formatReport(result: ScanResult, options: ReportOptions = {}): string {
-  const sections = result.findings.map(formatFinding);
+  const state: ReportState = {
+    width: options.width ?? DEFAULT_WIDTH,
+    verbose: options.verbose ?? false,
+    cases: new Map(),
+    texts: new Map(),
+  };
+  const sections = result.findings.map((finding) => formatFinding(finding, state));
   sections.push(formatSummary(result, options));
   if (options.showSkipped && result.skipped.length > 0) {
     sections.push(formatSkippedList(result.skipped));
@@ -46,17 +81,79 @@ export function formatReport(result: ScanResult, options: ReportOptions = {}): s
  *        9 |   } catch (err) {}
  *     Why: ...
  *     Fix: ...
+ * The first finding of each rule and case gets the full Why and Fix; later ones of the same kind
+ * get one line that points back to it (unless --verbose). The evidence is always shown.
  */
-function formatFinding(finding: Finding): string {
-  return [
+function formatFinding(finding: Finding, state: ReportState): string {
+  const location = `${finding.file}:${finding.line}`;
+  const lines = [
     `${finding.file}:${finding.line}:${finding.column}`,
     `  ${finding.ruleId} ${finding.ruleName} | severity: ${finding.severity} | confidence: ${finding.confidence}`,
     "  Evidence:",
     ...formatEvidence(finding),
-    ...wrap(`Why: ${finding.explanation}`, "  ", "       "),
-    ...wrap(`Fix: ${finding.suggestion}`, "  ", "       "),
-    ...formatFixPreview(finding),
-  ].join("\n");
+  ];
+  const key = caseKey(finding);
+  const first = state.cases.get(key);
+  if (state.verbose || first === undefined) {
+    if (first === undefined) state.cases.set(key, { location, suggestion: finding.suggestion });
+    lines.push(...wrap(`Why: ${finding.explanation}`, "  ", "       ", state.width));
+    lines.push(...wrap(`Fix: ${finding.suggestion}`, "  ", "       ", state.width));
+  } else {
+    // The same kind of problem as a finding above. Only the parts of the suggestion that are new
+    // here are printed (for example LP002's rewritten throw, or "write `catch (err)`").
+    const where = refer(first.location, finding.file);
+    const seen = new Set(sentences(first.suggestion).map(skeleton));
+    const extra = sentences(finding.suggestion).filter((sentence) => !seen.has(skeleton(sentence)));
+    if (extra.length === 0) {
+      lines.push(...wrap(`Why and fix: same as for ${where} above.`, "  ", "    ", state.width));
+    } else {
+      lines.push(...wrap(`Why: same as for ${where} above.`, "  ", "       ", state.width));
+      lines.push(...wrap(`Fix: ${extra.join(" ")} (The rest: same as for ${where} above.)`, "  ", "       ", state.width));
+    }
+  }
+  lines.push(...formatFixPreview(finding, location, state));
+  return lines.join("\n");
+}
+
+/**
+ * Which "kind" a finding is, for concise output: the rule, its levels, and its explanation without
+ * the first sentence (which names this finding's own status code or line), with names and numbers
+ * blanked out. If two findings of one kind ever get different keys, the full text is simply
+ * printed twice, which is harmless.
+ */
+function caseKey(finding: Finding): string {
+  return [finding.ruleId, finding.severity, finding.confidence, sentences(finding.explanation).slice(1).map(skeleton).join(" ")].join("\u0000");
+}
+
+/** Splits text into sentences (a sentence ends with . ! or ? followed by a capital letter or "("). */
+function sentences(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+(?=[A-Z(])/);
+}
+
+/** A sentence with the parts that differ between findings of one kind blanked out: names, numbers, quoted code. */
+function skeleton(sentence: string): string {
+  return sentence
+    .replace(/`[^`]*`/g, "`_`")
+    .replace(/"[^"]*"/g, '"_"')
+    .replace(/\d+/g, "#")
+    .replace(/\berr: [A-Za-z_$][\w$]*/g, "err") // { err: error, ... } and { err, ... }
+    .replace(/\b[A-Za-z_$][\w$]*(?=\.(name|message)\b)/g, "_")
+    .replace(/\(\s*[A-Za-z_$][\w$]*\s*\)/g, "(_)");
+}
+
+/** "line 14" for a location in the same file, else "src/a.js:14". */
+function refer(location: string, file: string): string {
+  return location.startsWith(`${file}:`) ? `line ${location.slice(file.length + 1)}` : location;
+}
+
+/** `text` wrapped in full the first time; afterwards one line saying where it was shown. */
+function onceThenRefer(label: string, text: string, location: string, file: string, state: ReportState, indent: string, rest: string): string[] {
+  const first = state.texts.get(`${label}\u0000${text}`);
+  if (state.verbose || first === undefined) {
+    if (first === undefined) state.texts.set(`${label}\u0000${text}`, location);
+    return wrap(`${label}: ${text}`, indent, rest, state.width);
+  }
+  return wrap(`${label}: same as for ${refer(first, file)} above.`, indent, rest, state.width);
 }
 
 /**
@@ -67,19 +164,23 @@ function formatFinding(finding: Finding): string {
  *     ...
  *   Checked: ...
  * or "No fix proposed: <reason>". Rules without fixes (LP001, LP002) show nothing here.
+ * The diff is always shown in full; logger lines, notes, reasons and "Checked" are shown in full
+ * the first time, then referred back to (unless --verbose).
  */
-function formatFixPreview(finding: Finding): string[] {
+function formatFixPreview(finding: Finding, location: string, state: ReportState): string[] {
   const fix = finding.fix;
   if (fix === undefined || !FIXABLE_RULES.has(finding.ruleId)) return [];
-  if (fix.status === "not-available") return wrap(`No fix proposed: ${fix.reason ?? ""}`, "  ", "       ");
-  const lines = wrap(`Proposed fix (preview only, not applied): ${fix.description ?? ""}`, "  ", "    ");
+  const file = finding.file;
+  if (fix.status === "not-available") return onceThenRefer("No fix proposed", fix.reason ?? "", location, file, state, "  ", "       ");
+  const lines = wrap(`Proposed fix (preview only, not applied): ${fix.description ?? ""}`, "  ", "    ", state.width);
   if (fix.logger !== undefined) {
-    lines.push(...wrap(`Logger: ${fix.logger.call} (confidence ${fix.logger.confidence}: ${fix.logger.evidence})`, "    ", "      "));
+    const logger = `${fix.logger.call} (confidence ${fix.logger.confidence}: ${fix.logger.evidence})`;
+    lines.push(...onceThenRefer("Logger", logger, location, file, state, "    ", "      "));
   }
-  // The diff is not word-wrapped: its lines are code.
+  // The diff is never word-wrapped: its lines are code.
   lines.push(...(fix.diff ?? "").trimEnd().split("\n").map((line) => `    ${line}`));
-  for (const note of fix.notes) lines.push(...wrap(`Note: ${note}`, "  ", "        "));
-  lines.push(...wrap(`Checked: ${FIX_CHECKED}`, "  ", "           "));
+  for (const note of fix.notes) lines.push(...onceThenRefer("Note", note, location, file, state, "  ", "        "));
+  lines.push(...onceThenRefer("Checked", FIX_CHECKED, location, file, state, "  ", "           "));
   return lines;
 }
 
@@ -126,8 +227,8 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
     const fixable = result.findings.filter((f) => FIXABLE_RULES.has(f.ruleId) && f.fix !== undefined);
     const available = fixable.filter((f) => f.fix?.status === "available").length;
     lines.push(
-      `Fix previews (LP003 only): ${available} available, ${fixable.length - available} not available. ` +
-        "No file was changed: apply a fix yourself after reviewing it.",
+      `Fix previews (LP003 only): ${available} available, ${fixable.length - available} not available.`,
+      "No file was changed: apply a fix yourself after reviewing it.",
     );
   }
   return lines.join("\n");
@@ -186,13 +287,16 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-/** Word-wraps `text` at WRAP_WIDTH. The first line starts with `firstIndent`, later lines with `restIndent`. */
-function wrap(text: string, firstIndent: string, restIndent: string): string[] {
+/**
+ * Word-wraps `text` at `width` columns. The first line starts with `firstIndent`, later lines with
+ * `restIndent`. A single word longer than a line is not split (it may be code or a path).
+ */
+function wrap(text: string, firstIndent: string, restIndent: string, width: number): string[] {
   const words = text.split(" ");
   const lines: string[] = [];
   let line = firstIndent + words[0];
   for (const word of words.slice(1)) {
-    if (line.length + 1 + word.length > WRAP_WIDTH) {
+    if (line.length + 1 + word.length > width) {
       lines.push(line);
       line = restIndent + word;
     } else {
