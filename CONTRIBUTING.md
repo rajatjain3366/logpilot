@@ -53,6 +53,7 @@ src/
   cli.ts                           command-line entry point: arguments, output, exit codes
   config.ts                        finds, reads and checks logpilot.config.json
   file-selection.ts                which folders and files are skipped, and why
+  names.ts                         splits names into words (newPassword -> new, password)
   node-version.ts                  the supported Node.js versions
   scanner.ts                       finds files and reads them, skips what should not be scanned
   analyze.ts                       one file's text: parse it, run every rule, apply suppressions
@@ -71,6 +72,7 @@ src/
   rules/lp003-unlogged-error-response.ts  rule LP003
   rules/lp003-fix.ts               proposed fixes for LP003: where the log line goes and what it says
   rules/loggers.ts                 which logger a fix calls (pino, winston, bunyan, the project's, console)
+  rules/secret-fields.ts           whether a fix's try block saves a password-like field (for the fix note)
 test/
   lp001-empty-catch.test.ts        rule tests for LP001
   lp002-lost-error-cause.test.ts   rule tests for LP002
@@ -94,6 +96,7 @@ test/
   fixtures/negative/               code that NO rule may report
   fixtures/fix/                    code for the fix-preview tests (reported by LP003)
   fixtures/fix/loggers/            one fixture per logger style, and the logger modules they import
+  fixtures/fix/passwords/          code that saves (or only reads) password-like fields, and the models it uses
 docs/
   evaluation.md                    measured precision on real projects, with every labelled finding
   eval-data/                       labels, sealed files, protocols and scripts behind evaluation.md

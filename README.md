@@ -8,7 +8,7 @@ LogPilot is an open-source, local command-line tool that scans JavaScript and Ty
 (Node.js) projects for code that would leave you **without evidence** when something goes
 wrong in production, for example an error that is caught and then silently thrown away.
 
-> **Status: early prototype, v0.4.0.** Three rules exist today: LP001, LP002 and LP003, and LP003
+> **Status: early prototype, v0.4.1.** Three rules exist today: LP001, LP002 and LP003, and LP003
 > findings can show a proposed fix ([fix previews](#fix-previews), never applied). The CLI is
 > not published to npm yet; see [Quick start](#quick-start) for running it from this repository.
 > Before relying on the results, read [Accuracy](#accuracy).
@@ -236,11 +236,50 @@ checking what reached the log:
 A fix that fails a check is not shown, and LogPilot warns about it (a LogPilot bug: please report
 it).
 
+**A note when the `try` block saves a password-like field** (v0.4.1). Logging the whole error is
+risky in code that saves a password: a validation error can keep the value that failed. With
+Mongoose, `errors.password.value` holds the plain password, and `console.error` and pino both print
+it. So such a fix gets a note, for example:
+
+> This try block saves `password` (line 101). If that field fails validation, the validation error
+> can keep its value (Mongoose keeps it in `errors.password.value`), and logging the whole error
+> writes it to your logs. Check the value before saving (for example its length), or redact it in
+> your logger.
+
+The fix is still shown: the value is only in the error when that field itself fails validation,
+which many handlers rule out by checking it first.
+
+- **"Password-like"** means a name with one of these whole words (camelCase, snake_case and
+  kebab-case are split into words): `password`, `passwd`, `pwd`, `passphrase`, `pass`, `secret`,
+  `token`, `otp`, `pin`, `cvv`, `cvc`; or the word pairs `api key`, `private key`, `access key`,
+  `secret key`, `card number`. So `newPassword`, `password_confirmation`, `x-api-key`,
+  `refreshToken` and `cardNumber` count; `secretary`, `spinner`, `isPinned` and `bypass` do not.
+  Some names count although they hold no secret, such as `passwordChangedAt` (a date), `pinCode`
+  (a postal PIN code), `passThrough` (a flag) and `tokenCount`. The note names the field, so you
+  can see that.
+- **"Saves"** means, in the `try` block:
+  - a password-like key in an object passed to `new X(...)` or to a write call (`create`,
+    `insert…`, `save`, `update…`, `findOneAndUpdate`, `findByIdAndUpdate`, `replaceOne`, `upsert`,
+    `build`, `bulkCreate`, `set`), at any depth: `User.create({ password })`,
+    `findByIdAndUpdate(id, { $set: { apiKey } })`;
+  - `user.password = ...`, when the same `user` is saved in that `try` block (`user.save()`);
+  - the whole request body (`User.create(req.body)`, `new User({ ...req.body })`), only when the
+    model's schema shows a password-like field. LogPilot reads the model's module one step, with
+    the same rules as for loggers. **Models from packages, or from outside the folder you scan, are
+    not checked**, so saving the request body with them gets no note.
+- **No note** for reading a password (`bcrypt.compare(password, user.password)`), for a token in
+  the response (`res.json({ token })`), or for error middleware (there is no `try` block to look
+  at).
+
 **On the apps LP003 was tuned on** (tuning data, not a quality claim; see
-[docs/evaluation.md](docs/evaluation.md#milestone-3-lp003-fix-previews-on-the-tuning-apps)): 107 of
-112 LP003 findings got a fix, all 107 passed these checks and added only one line (plus a catch
-variable in 21), and the other 5 were 4xx answers. No project there used a logger LogPilot
-recognises, so every fix used `console.error`.
+[docs/evaluation.md](docs/evaluation.md#milestone-3-lp003-fix-previews-on-the-tuning-apps)):
+
+- With v0.4.0, 107 of 112 LP003 findings got a fix. All 107 passed these checks and added only one
+  line (plus a catch variable in 21), and the other 5 were 4xx answers. No project there used a
+  logger LogPilot recognises, so every fix used `console.error`.
+- v0.4.1 no longer scans one app's compiled copies in `.server-build/`, so 99 of 104 findings get a
+  fix. 5 of those fixes carry the password note: all are handlers that create or change a password.
+  All 5 already check the password's length before saving, so there the note is a reminder.
 
 **No fix is proposed** (the report says why) for:
 
@@ -481,6 +520,9 @@ default:
 | Folders `node_modules`, `.git` | dependencies and git internals: **never scanned**, even with `--no-default-excludes` |
 | Folders `vendor`, `bower_components`, `jspm_packages` | third-party code |
 | Folders `dist`, `build`, `coverage`, `.next`, `.nuxt`, `.output`, `.svelte-kit` | generated output |
+| Folders `.angular`, `.astro`, `.aws-sam`, `.cache`, `.docusaurus`, `.esbuild`, `.expo`, `.firebase`, `.netlify`, `.nx`, `.parcel-cache`, `.serverless`, `.turbo`, `.vercel`, `.vinxi`, `.vite`, `.webpack`, `.wrangler` | generated output: tools' build and cache folders (v0.4.1) |
+| Folder `.yarn` | third-party code: Yarn's own release and plugins (v0.4.1) |
+| Any other folder whose name starts with `.` and whose last word is `build`, `dist`, `out`, `output` or `cache`, such as `.server-build`, `.build` or `.remix-cache` | generated output: a dot-named build folder (v0.4.1) |
 | Files `*.min.js`, `*.min.mjs`, `*.min.cjs` | minified |
 | Files whose lines average more than 110 characters **and** that have a line over 1,000 characters | minified (the average rule is GitHub Linguist's; the long-line check keeps files of long strings) |
 | Files that start with a `/*!` license comment that names a version, like `/*! jQuery v1.10.2 */` | a copied third-party library (projects' own `/*!` banners usually have no version, so they are still scanned) |
@@ -564,7 +606,7 @@ settings (a library, so LP003 finds nothing there):
 ```json
 {
   "schemaVersion": 2,
-  "tool": { "name": "logpilot", "version": "0.4.0" },
+  "tool": { "name": "logpilot", "version": "0.4.1" },
   "rules": [
     { "id": "LP001", "name": "empty-catch", "version": 2 },
     { "id": "LP002", "name": "lost-error-cause", "version": 1 },
@@ -740,8 +782,21 @@ We have not measured how many LogPilot findings these lint rules also report.
 - **LP003's case E (4xx) has found no real problem so far,** only debatable cases such as
   authentication checks that answer 401. Its *low* severity was set after that measurement and has
   not been measured itself.
-- **Generated code in unusual folders is scanned.** A build folder named, say, `.server-build/`
-  is not one of the default skips; add an `exclude` pattern for it.
+- **Generated code in unusual folders is scanned.**
+  - Since v0.4.1, dot-named build folders such as `.server-build/` are skipped (see
+    [What LogPilot does not scan](#what-logpilot-does-not-scan)).
+  - A build folder with another name, such as `server-build/` or `compiled/`, is still scanned; add
+    an `exclude` pattern for it.
+  - Only those dot folders are skipped, not every dot folder: across the 25 evaluated projects, dot
+    folders such as `.github`, `.vitepress`, `.husky` and test fixtures hold the projects' own code.
+- **The password note on fix previews sees only the `try` block's own code.**
+  - It misses a password that is saved through a variable (`const data = { ...req.body };
+    User.create(data)`) or through a helper.
+  - It misses a model from a package or from outside the scanned folder.
+  - Some names that count as password-like hold no secret (see [Fix previews](#fix-previews)).
+  - It does not check whether the value is validated before saving, so the note can be a reminder
+    rather than a found problem.
+  - The way the value ends up in the error was measured with Mongoose only.
 - **Suppressions work one line at a time.** There is no way to turn a rule off for a whole file or
   project; use `exclude` patterns to skip whole files and folders.
 - **`--min-severity` can hide real problems,** because real problems have been reported at every

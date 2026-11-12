@@ -11,6 +11,7 @@ import { checkSourceFile, parseSource } from "../src/analyze.js";
 import { applyEdits } from "../src/fix-edits.js";
 import { attachFixPreviews, moduleReader } from "../src/fixes.js";
 import { chooseLogger } from "../src/rules/loggers.js";
+import { isPasswordLike } from "../src/rules/secret-fields.js";
 import type { Finding } from "../src/types.js";
 
 /** Runs every rule with fix previews on `code`; returns the findings and the validation warnings. */
@@ -373,6 +374,120 @@ describe("LP003 fix previews: copying the form of the project's own error calls"
     const code = withLogger('logger.error(err, "a failed");').replace("    res.status(500).end();", "    const logger = null;\n    res.status(500).end(logger);");
     expect(fixFor(code).reason).toBe("No fix: this block declares its own variable named `logger`, which the log line would use. Add the log line by hand.");
   });
+});
+
+/** Fixes in a fix/passwords/ fixture, scanned by full path with `root` as the scanned folder: line -> fix. */
+function passwordFixes(name: string, root = "") {
+  const dir = fileURLToPath(new URL("./fixtures/fix/passwords/", import.meta.url));
+  const file = path.join(dir, name);
+  const sourceFile = parseSource(file, readFileSync(file, "utf8"));
+  const { kept } = checkSourceFile(sourceFile, name);
+  expect(attachFixPreviews(sourceFile, name, kept, false, path.join(dir, root))).toEqual([]);
+  return new Map(kept.map((f) => [f.line, f.fix!]));
+}
+const secretNoteOf = (fix: { notes: string[] } | undefined) => fix?.notes.find((n) => n.startsWith("This try block saves"));
+
+describe("LP003 fix previews: a note when the try block saves a password-like field (v0.4.1)", () => {
+  const writes = passwordFixes("writes.js");
+
+  it("notes a password-like key passed to create(), with the field, the line and what to do", () => {
+    expect(secretNoteOf(writes.get(17))).toBe(
+      "This try block saves `password` (line 15). If that field fails validation, the validation error can keep its value " +
+        "(Mongoose keeps it in `errors.password.value`), and logging the whole error writes it to your logs. " +
+        "Check the value before saving (for example its length), or redact it in your logger.",
+    );
+    expect(writes.get(17)?.status).toBe("available"); // a note, never a refusal
+  });
+
+  it("notes user.password = ... when the same user is saved, and keys nested in $set or passed to new X(...)", () => {
+    expect(secretNoteOf(writes.get(29))).toMatch(/^This try block saves `password` \(line 26\)\. If that field fails/);
+    expect(secretNoteOf(writes.get(40))).toMatch(/^This try block saves `apiKey`, `refreshToken` \(line 37\)\. If one of these fields fails/);
+  });
+
+  it("adds the note to a case C fix too (the error is appended to the existing console call)", () => {
+    expect(writes.get(74)?.edits.map((e) => e.newText)).toEqual([", err"]);
+    expect(secretNoteOf(writes.get(74))).toMatch(/^This try block saves `password` \(line 72\)/);
+  });
+
+  it("does not note reading a password, a token in the response, or a field set on an object that is never saved", () => {
+    expect(writes.get(52)?.status).toBe("available");
+    expect(secretNoteOf(writes.get(52))).toBeUndefined(); // login: bcrypt.compare, jwt.sign, res.json({ token })
+    expect(secretNoteOf(writes.get(64))).toBeUndefined(); // data.generatedPassword = ... without data.save()
+  });
+
+  it("does not note a secret key passed to a call that is not a write, or to a write method on the response", () => {
+    const code = (line: string) =>
+      [
+        'const express = require("express");',
+        "const app = express();",
+        'app.post("/a", async (req, res) => {',
+        `  try { ${line} res.end(); } catch (err) { res.status(500).end(); }`,
+        "});",
+      ].join("\n");
+    expect(secretNoteOf(scan("a.js", code("await sendEmail({ to: req.body.email, token: req.body.token });")).findings[0].fix)).toBeUndefined();
+    // a METHOD call that is not a write (send is not create/insert/save/update/...):
+    expect(secretNoteOf(scan("d.js", code("await mailer.send({ to: req.body.email, token: req.body.token });")).findings[0].fix)).toBeUndefined();
+    expect(secretNoteOf(scan("b.js", code('res.set({ "x-api-key": process.env.KEY });')).findings[0].fix)).toBeUndefined();
+    // ...while the same key in a write call does get the note:
+    expect(secretNoteOf(scan("c.js", code("await Token.create({ token: req.body.token });")).findings[0].fix)).toMatch(/saves `token`/);
+  });
+
+  it("notes look-alike fields that hold no secret (documented noise: the note names them), but not words inside longer words", () => {
+    expect(secretNoteOf(writes.get(85))).toMatch(/^This try block saves `passwordChangedAt`, `pinCode`, `passThrough` \(line 83\)/);
+    expect(secretNoteOf(writes.get(95))).toBeUndefined(); // secretary, spinner, isPinned, bypass
+  });
+});
+
+describe("LP003 fix previews: the whole request body is noted only when the model shows a password-like field", () => {
+  it("reads the model one step: a spread body or the body itself, saved with a model that has `password`", () => {
+    const body = passwordFixes("body.js");
+    expect(secretNoteOf(body.get(17))).toBe(
+      'This try block saves the whole request body (line 14), and `User` (from "./models/User") has the field `password`. ' +
+        "If that field fails validation, the validation error can keep its value (Mongoose keeps it in `errors.password.value`), " +
+        "and logging the whole error writes it to your logs. Check the value before saving (for example its length), or redact it in your logger.",
+    );
+    expect(secretNoteOf(body.get(26))).toMatch(/^This try block saves the whole request body \(line 25\), and `User`/);
+  });
+
+  it("does not note a model without such a field, or a model from a package (it is not read)", () => {
+    const body = passwordFixes("body.js");
+    expect(secretNoteOf(body.get(35))).toBeUndefined();
+    expect(secretNoteOf(body.get(44))).toBeUndefined();
+  });
+
+  it("does not read a model outside the scanned folder, and reads it when its folder is scanned", () => {
+    expect(secretNoteOf(passwordFixes("routes/admins.js", "routes").get(12))).toBeUndefined();
+    expect(secretNoteOf(passwordFixes("routes/admins.js").get(12))).toMatch(/`User` \(from "\.\.\/models\/User"\) has the field `password`/);
+  });
+
+  it("gives error middleware no note: it has no try block to look at", () => {
+    const code = [
+      'const express = require("express");',
+      "const app = express();",
+      "app.use((err, req, res, next) => {",
+      "  res.status(500).json({ password: undefined });",
+      "});",
+    ].join("\n");
+    expect(secretNoteOf(scan("a.js", code).findings[0].fix)).toBeUndefined();
+  });
+});
+
+describe("isPasswordLike: whole words of the name (v0.4.1)", () => {
+  it.each([
+    "password", "newPassword", "password_confirmation", "hashedPassword", "passwd", "pwd", "passphrase", "pass",
+    "clientSecret", "refreshToken", "x-api-key", "apiKey", "API_KEY", "privateKey", "accessKey", "secretKey",
+    "otp", "pin", "cvv", "cvc", "cardNumber", "card_number",
+    "passwordChangedAt", "tokenCount", "pinCode", "passThrough", // documented noise
+  ])("%s is password-like", (name) => {
+    expect(isPasswordLike(name)).toBe(true);
+  });
+
+  it.each(["secretary", "spinner", "isPinned", "bypass", "maxTokens", "keyboard", "apiUrl", "passenger", "email", "username"])(
+    "%s is not password-like",
+    (name) => {
+      expect(isPasswordLike(name)).toBe(false);
+    },
+  );
 });
 
 describe("LP003 fix previews: case C adds the error to the existing console call", () => {

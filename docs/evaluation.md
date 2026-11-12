@@ -214,6 +214,22 @@ the apps' folders); its SHA-256 is
   tuning round labelled FP. Their fixes are mechanically fine but would be lost on the next build.
   No other per-finding labels exist for the tuning apps, so no TP/FP split of the fixes is given.
 
+**Changed after this measurement (v0.4.1).** Everything above was measured with v0.4.0.
+
+- **Dot-named build folders are skipped by default.** App F's `.server-build/` is no longer scanned,
+  so its 8 compiled-copy findings and their fixes are gone: the tuning apps give 104 LP003
+  findings and 99 fixes, again with 0 refused by validation.
+  - The rule was checked on all 25 evaluated projects using only `--show-skipped` lists, before and
+    after implementing it. It newly skips exactly two folders: this `.server-build/`, and App Q's
+    `.yarn/`, which holds only Yarn's own `plugins` and `releases`.
+  - None of the published held-out findings is inside either folder, so no precision number in
+    this document changes.
+- **Fixes in code that saves a password-like field get a note** (validation errors can keep the
+  failing value; measured with Mongoose 9 during the blind review below).
+  - On the tuning apps, 5 of the 99 fixes get it, all in handlers that create or change a password.
+  - All 5 handlers already check the password's length before saving, so in that app the note is a
+    reminder, not a found leak.
+
 ### Milestone 3: judgements of the sample of 30
 
 Claude's 30 judgements were sealed at 2026-11-12T11:42:15Z in a private file whose SHA-256 is

@@ -8,7 +8,9 @@ import {
   fileSkipByContent,
   fileSkipByName,
   folderSkip,
+  isDotBuildFolder,
 } from "../src/file-selection.js";
+import { nameWords } from "../src/names.js";
 import { unsupportedNodeVersion } from "../src/node-version.js";
 
 describe("checkExcludePattern", () => {
@@ -100,6 +102,58 @@ describe("folderSkip", () => {
     expect(folderSkip(".git", false)?.detail).toBe("git internals, never scanned");
     expect(folderSkip("dist", false)).toBeUndefined();
     expect(folderSkip("vendor", false)).toBeUndefined();
+    expect(folderSkip(".yarn", false)).toBeUndefined(); //         (v0.4.1)
+    expect(folderSkip(".server-build", false)).toBeUndefined();
+  });
+});
+
+describe("folderSkip: dot-named build, cache and third-party folders (v0.4.1)", () => {
+  it.each([
+    ".angular", ".astro", ".aws-sam", ".cache", ".docusaurus", ".esbuild", ".expo", ".firebase", ".netlify", ".nx",
+    ".parcel-cache", ".serverless", ".turbo", ".vercel", ".vinxi", ".vite", ".webpack", ".wrangler",
+  ])("skips the tool folder %s as generated output", (name) => {
+    expect(folderSkip(name)).toMatchObject({ reason: "default-folder", detail: expect.stringMatching(/^generated output \(/) });
+  });
+
+  it("applies the build-word rule only to names that start with a dot", () => {
+    expect(isDotBuildFolder(".server-build")).toBe(true);
+    expect(isDotBuildFolder("server-build")).toBe(false);
+    expect(isDotBuildFolder(".")).toBe(false);
+  });
+
+  it("skips .yarn as third-party code (Yarn 2+ keeps its own release and plugins there)", () => {
+    expect(folderSkip(".yarn")).toEqual({ reason: "default-folder", detail: "third-party code (Yarn's own release and plugins)" });
+  });
+
+  it.each([".server-build", ".build", ".dist", ".out", ".remix-cache", ".serverBuild", ".my_dist", ".app.output"])(
+    "skips %s: a dot-named folder whose last word is build, dist, out, output or cache",
+    (name) => {
+      expect(folderSkip(name)).toEqual({ reason: "default-folder", detail: "generated output (a dot-named build folder)" });
+    },
+  );
+
+  // Dot folders seen in the evaluated projects that hold the projects' own code or config, and
+  // look-alikes whose last word only contains a build word.
+  it.each([".github", ".vitepress", ".storybook", ".husky", ".vscode", ".devcontainer", ".evergreen", ".claude", ".config",
+    ".nested", ".hidden-dir", ".dot-prefixed", ".layout", ".builders", ".build-tools", ".distribution", ".outbox", "server-build"])(
+    "enters %s",
+    (name) => {
+      expect(folderSkip(name)).toBeUndefined();
+    },
+  );
+});
+
+describe("nameWords", () => {
+  it.each([
+    ["newPassword", ["new", "password"]],
+    ["password_confirmation", ["password", "confirmation"]],
+    ["x-api-key", ["x", "api", "key"]],
+    ["APIKey", ["api", "key"]],
+    ["server-build", ["server", "build"]],
+    ["serverBuild", ["server", "build"]],
+    ["s3Secret", ["s", "secret"]],
+  ])("splits %s into %j", (name, words) => {
+    expect(nameWords(name)).toEqual(words);
   });
 });
 

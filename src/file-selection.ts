@@ -3,6 +3,7 @@
 // so users can always see what LogPilot did NOT look at. Nothing here writes to disk.
 
 import path from "node:path";
+import { nameWords } from "./names.js";
 import type { SkipReason } from "./types.js";
 
 /** A decision to skip a folder or file: the reason (for counting) and a short readable detail. */
@@ -33,7 +34,43 @@ const DEFAULT_EXCLUDED_FOLDERS = new Map([
   [".nuxt", "generated output"],
   [".output", "generated output"],
   [".svelte-kit", "generated output"],
+  // v0.4.1: tools' dot-named build and cache folders. Only names known to hold generated files: a
+  // rule that skipped every dot folder would also skip project code (.github, .vitepress, .husky,
+  // test fixtures in dot folders), as the check on all evaluated projects showed.
+  [".angular", "generated output (Angular CLI cache)"],
+  [".astro", "generated output (Astro)"],
+  [".aws-sam", "generated output (AWS SAM build)"],
+  [".cache", "generated output (a tool's cache)"],
+  [".docusaurus", "generated output (Docusaurus)"],
+  [".esbuild", "generated output (serverless-esbuild)"],
+  [".expo", "generated output (Expo local state)"],
+  [".firebase", "generated output (Firebase Hosting cache)"],
+  [".netlify", "generated output (Netlify build)"],
+  [".nx", "generated output (Nx cache)"],
+  [".parcel-cache", "generated output (Parcel cache)"],
+  [".serverless", "generated output (Serverless Framework package)"],
+  [".turbo", "generated output (Turborepo cache)"],
+  [".vercel", "generated output (Vercel build)"],
+  [".vinxi", "generated output (Vinxi build)"],
+  [".vite", "generated output (Vite cache)"],
+  [".webpack", "generated output (webpack build)"],
+  [".wrangler", "generated output (Cloudflare Wrangler)"],
+  [".yarn", "third-party code (Yarn's own release and plugins)"],
 ]);
+
+/**
+ * The last word of a dot-named folder that marks it as build output: `.server-build`, `.build`,
+ * `.dist`, `.remix-cache`. Only dot-named folders: a plain `output/` or `out/` folder can hold a
+ * project's own code.
+ */
+const DOT_BUILD_LAST_WORDS = new Set(["build", "dist", "out", "output", "cache"]);
+
+/** True for a dot-named folder whose last word is build, dist, out, output or cache. */
+export function isDotBuildFolder(name: string): boolean {
+  if (!name.startsWith(".")) return false;
+  const words = nameWords(name.slice(1));
+  return words.length > 0 && DOT_BUILD_LAST_WORDS.has(words[words.length - 1]);
+}
 
 /** `*.min.js`, `*.min.mjs`, `*.min.cjs`: minified by name. */
 const MINIFIED_NAME = /\.min\.([cm]?js)$/i;
@@ -108,8 +145,10 @@ export class ExcludePatterns {
 export function folderSkip(name: string, defaultExcludes = true): SkipDecision | undefined {
   const always = ALWAYS_SKIPPED_FOLDERS.get(name);
   if (always !== undefined) return { reason: "default-folder", detail: always };
-  const byDefault = defaultExcludes ? DEFAULT_EXCLUDED_FOLDERS.get(name) : undefined;
+  if (!defaultExcludes) return undefined;
+  const byDefault = DEFAULT_EXCLUDED_FOLDERS.get(name);
   if (byDefault !== undefined) return { reason: "default-folder", detail: byDefault };
+  if (isDotBuildFolder(name)) return { reason: "default-folder", detail: "generated output (a dot-named build folder)" };
   return undefined;
 }
 

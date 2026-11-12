@@ -17,6 +17,7 @@ import type { FixSafety } from "../fix-validate.js";
 import type { FixPreview, TextEdit } from "../types.js";
 import { chooseLogger, type LoggerChoice, type ReadFile } from "./loggers.js";
 import { findLp003Targets, type Lp003Target, reportedPosition, serverErrorResponses } from "./lp003-unlogged-error-response.js";
+import { type SecretWrite, secretWrites } from "./secret-fields.js";
 
 /** A proposed fix for one LP003 finding, or the reason there is none. */
 export type Lp003Proposal =
@@ -76,7 +77,7 @@ export function proposeLp003Fixes(sourceFile: ts.SourceFile, readFile?: ReadFile
   const logger = chooseLogger(sourceFile, readFile);
   for (const target of targets) {
     const { line, column } = reportedPosition(target.reported, sourceFile);
-    proposals.set(`${line}:${column}`, propose(target, sourceFile, style, axios, logger));
+    proposals.set(`${line}:${column}`, propose(target, sourceFile, style, axios, logger, readFile));
   }
   return proposals;
 }
@@ -91,6 +92,7 @@ function propose(
   style: CodeStyle,
   axios: Set<string>,
   logger: LoggerChoice,
+  readFile?: ReadFile,
 ): Lp003Proposal {
   const text = sourceFile.text;
   if (target.theCase === "E") return no(REASON_CLIENT_ERROR);
@@ -135,6 +137,13 @@ function propose(
     }
   }
   if (declaresAnywhere(sourceFile, "console")) return no("No fix: this file declares its own `console`, so LogPilot cannot be sure what console.error does here.");
+
+  // v0.4.1: the try block saves a password-like field. A validation error can keep its value.
+  if (target.catchClause !== undefined) {
+    const tryBlock = (target.catchClause.parent as ts.TryStatement).tryBlock;
+    const secrets = secretWrites(tryBlock, requestName, target.handler.res, sourceFile, readFile);
+    if (secrets !== undefined) notes.push(secretNote(secrets));
+  }
 
   // Case C: the catch already logs a message with console, without the error. Add the error to that
   // call instead of writing a second log line.
@@ -213,6 +222,27 @@ function propose(
     notes,
     safety: { errorName: errorName!, requestName, loggerName: logger.name, errorKey: logger.errorKey },
   };
+}
+
+/**
+ * The note for a try block that saves a password-like field (see secret-fields.ts), e.g.
+ * "This try block saves `password` (line 101). If that field fails validation, ..."
+ */
+function secretNote(secrets: SecretWrite): string {
+  const shown = secrets.fields.slice(0, 3).map((field) => `\`${field}\``);
+  const more = secrets.fields.length > 3 ? ` and ${secrets.fields.length - 3} more` : "";
+  const list = shown.join(", ") + more;
+  const one = secrets.fields.length === 1;
+  const what =
+    secrets.model === undefined
+      ? `This try block saves ${list} (line ${secrets.line}).`
+      : `This try block saves the whole request body (line ${secrets.line}), and \`${secrets.model.name}\` ` +
+        `(from "${secrets.model.specifier}") has the field${one ? "" : "s"} ${list}.`;
+  return (
+    `${what} If ${one ? "that field" : "one of these fields"} fails validation, the validation error can keep its value ` +
+    `(Mongoose keeps it in \`errors.${secrets.fields[0]}.value\`), and logging the whole error writes it to your logs. ` +
+    "Check the value before saving (for example its length), or redact it in your logger."
+  );
 }
 
 /**

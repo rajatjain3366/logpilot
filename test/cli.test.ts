@@ -141,7 +141,9 @@ describe("CLI: scan", () => {
     // 17 more LP003 findings, and no LP001 or LP002 finding.
     // CHANGED ON PURPOSE (Milestone 3, Checkpoint 3): fix/loggers/ adds 7 fixtures and 3 logger modules
     // (42 -> 52 files) and one LP003 finding per fixture (36 -> 43).
-    expect(stdout.endsWith("Scanned 52 files, 120 findings (LP001: 54, LP002: 23, LP003: 43)\n")).toBe(true);
+    // CHANGED ON PURPOSE (v0.4.1): fix/passwords/ adds 3 handler files (8 + 4 + 1 LP003 findings) and
+    // 3 model modules (no findings): 52 -> 58 files, LP003 43 -> 56.
+    expect(stdout.endsWith("Scanned 58 files, 133 findings (LP001: 54, LP002: 23, LP003: 56)\n")).toBe(true);
   });
 
   it("scans a single file", () => {
@@ -177,7 +179,8 @@ describe("CLI: scan", () => {
     expect(exitCode).toBe(1); // the scan really ran and found the positives
     // CHANGED ON PURPOSE (Milestone 3): 4 fix-preview fixtures added in test/fixtures/fix/.
     // CHANGED ON PURPOSE (Milestone 3, Checkpoint 3): 10 more in test/fixtures/fix/loggers/.
-    expect(Object.keys(before)).toHaveLength(52); // 29 + 3 LP001 and 6 LP003 (Milestone 2.5) + 14 fix (Milestone 3)
+    // CHANGED ON PURPOSE (v0.4.1): 6 more in test/fixtures/fix/passwords/.
+    expect(Object.keys(before)).toHaveLength(58); // 29 + 3 LP001 and 6 LP003 (Milestone 2.5) + 14 fix (Milestone 3) + 6 (v0.4.1)
     expect(after).toEqual(before);
   });
 

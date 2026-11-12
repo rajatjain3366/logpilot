@@ -122,14 +122,15 @@ function libraryChoice(library: Library, name: string, confidence: Confidence, e
 }
 
 /** A name imported from a module: `import x from "m"`, `import { a as x } from "m"`, `const x = require("m")`, ... */
-interface ImportedBinding {
+export interface ImportedBinding {
   local: string;
   /** "default" for a default import or a whole `require(...)`, else the exported name. */
   imported: string;
   specifier: string;
 }
 
-function importedBindings(sourceFile: ts.SourceFile): ImportedBinding[] {
+/** Names the file imports at its top level (also used by secret-fields.ts to find a model's module). */
+export function importedBindings(sourceFile: ts.SourceFile): ImportedBinding[] {
   const bindings: ImportedBinding[] = [];
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier) && !statement.importClause?.isTypeOnly) {
