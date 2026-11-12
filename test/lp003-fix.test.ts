@@ -317,7 +317,7 @@ describe("LP003 fix previews: the project's own logger (fixtures in fix/loggers/
       try {
         symlinkSync(path.join(dir, "outside.js"), path.join(dir, "scanned", "link.js"));
         linked = true;
-      } catch {
+      } catch { // logpilot-ignore-line LP001 -- without permission to create links, the link check below is skipped
         // Windows allows symbolic links only in developer mode or as administrator.
       }
       if (linked) expect(read(path.join(dir, "scanned", "link.js"))).toBeUndefined();

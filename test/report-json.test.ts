@@ -1,4 +1,4 @@
-// Tests for src/report-json.ts: the shape of the JSON report (schema version 2).
+// Tests for src/report-json.ts: the shape of the JSON report (schema version 3).
 // Tools will read this format, so the keys, their order and the counts are checked exactly.
 
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,7 @@ function finding(overrides: Partial<Finding>): Finding {
 
 const result: ScanResult = {
   filesScanned: 3,
+  filesWithExpressHandlers: 2,
   findings: [finding({ line: 2 }), finding({ line: 9, severity: "low" })],
   suppressed: [{ finding: finding({ line: 20 }), reason: "the cache is optional", commentLine: 19 }],
   // Deliberately out of order: the JSON report must sort them.
@@ -52,7 +53,7 @@ const context: JsonReportContext = {
   exitCode: 0,
 };
 
-describe("formatJson (schema version 2)", () => {
+describe("formatJson (schema version 3)", () => {
   it("is valid JSON with the top-level keys in a fixed order, ending with a newline", () => {
     const text = formatJson(result, context);
 
@@ -74,7 +75,8 @@ describe("formatJson (schema version 2)", () => {
     const report = JSON.parse(formatJson(result, context));
 
     // CHANGED ON PURPOSE (Milestone 3): schema version 2 adds fix, config.fixPreview and summary.fixes.
-    expect(report.schemaVersion).toBe(2);
+    // CHANGED ON PURPOSE (v0.4.2): schema version 3: paths are relative to the scanned folder.
+    expect(report.schemaVersion).toBe(3);
     expect(report.tool).toEqual({ name: "logpilot", version: "9.9.9" });
     expect(report.rules).toEqual([
       { id: "LP001", name: "empty-catch", version: 1 },
@@ -89,6 +91,7 @@ describe("formatJson (schema version 2)", () => {
 
     expect(summary).toEqual({
       filesScanned: 3,
+      filesWithExpressHandlers: 2, // CHANGED ON PURPOSE (v0.4.2): key added (0 = LP003 had nothing to check)
       findings: 2,
       findingsByRule: { LP001: 2, LP002: 0 },
       findingsBySeverity: { high: 0, medium: 1, low: 1 },

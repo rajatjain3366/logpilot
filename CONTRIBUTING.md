@@ -41,7 +41,11 @@ sample input for the scanner (some are even named `*.spec.ts`) and must never ru
 
 Continuous integration ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs `npm ci` and
 `npm test` on every push to `main` and every pull request, on Node 22 and 24, on Ubuntu and
-Windows.
+Windows. Then LogPilot scans its own code: `node dist/cli.js scan . --fail-on low` must report 0
+findings. [logpilot.config.json](logpilot.config.json) excludes `test/fixtures/**` (code written
+to be reported). If your change adds a finding in LogPilot's own code, fix it, or suppress it with
+a `logpilot-ignore` comment that gives the reason. Because of that config file, scan a fixture with
+`--no-config`, for example `node dist/cli.js scan test/fixtures/positive --no-config`.
 
 If `npm test` fails on Windows with "Vitest failed to find the runner", see
 [Troubleshooting](README.md#troubleshooting).
@@ -63,7 +67,7 @@ src/
   fix-validate.ts                  checks a proposed fix before it is shown (parses, safe names, rules re-run)
   severity.ts                      severity levels, --min-severity and --fail-on checks
   report.ts                        formats findings as readable text
-  report-json.ts                   the JSON report (--format json, schema version 2)
+  report-json.ts                   the JSON report (--format json, schema version 3)
   types.ts                         shared data types (findings, skipped paths, warnings)
   rules/shared.ts                  helpers used by several rules (catch variable, comments, evidence)
   rules/lp001-empty-catch.ts       rule LP001

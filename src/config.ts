@@ -70,14 +70,14 @@ export function loadConfig(file: string, shownAs: string = file): Config {
   try {
     text = readFileSync(file, "utf8");
   } catch (error) {
-    throw new ConfigError(`${shownAs}: cannot be read (${(error as Error).message})`);
+    throw new ConfigError(`${shownAs}: cannot be read (${(error as Error).message})`, { cause: error });
   }
 
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch (error) {
-    throw new ConfigError(`${shownAs}: is not valid JSON (${(error as Error).message})`);
+    throw new ConfigError(`${shownAs}: is not valid JSON (${(error as Error).message})`, { cause: error });
   }
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
     throw new ConfigError(`${shownAs}: must contain a JSON object, for example { "exclude": ["docs/**"] }`);

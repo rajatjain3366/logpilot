@@ -89,9 +89,12 @@ describe("CLI: help, version and usage errors", () => {
   });
 });
 
+// CHANGED ON PURPOSE (v0.4.2): the tests that scan this repository's own fixtures pass --no-config.
+// LogPilot's logpilot.config.json (at the repository root, so LogPilot can scan itself) excludes
+// test/fixtures/**, and these tests are about what the rules report, not about that config.
 describe("CLI: scan", () => {
   it("exits 0 with '0 findings' when the code handles its errors (all rules run)", () => {
-    const { exitCode, stdout, stderr } = runCli(["scan", "test/fixtures/negative"]);
+    const { exitCode, stdout, stderr } = runCli(["scan", "test/fixtures/negative", "--no-config"]);
 
     expect(exitCode).toBe(0);
     // 7 files written for LP001 + 3 for LP002 + 1 for LP003 (added in Milestone 2.5); no rule may
@@ -101,20 +104,21 @@ describe("CLI: scan", () => {
   });
 
   it("prints every finding when there are problems, and exits 0 by default (warning-only)", () => {
-    const { exitCode, stdout, stderr } = runCli(["scan", "test/fixtures/positive"]);
+    const { exitCode, stdout, stderr } = runCli(["scan", "test/fixtures/positive", "--no-config"]);
 
     // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none", so findings alone
     // exit 0. Exit code 1 with --fail-on is tested in "CLI: severity filtering and --fail-on".
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toContain("test/fixtures/positive/empty-catch.ts:9:5\n");
+    // CHANGED ON PURPOSE (v0.4.2): paths are relative to the scanned folder (was test/fixtures/positive/...).
+    expect(stdout).toContain("\nempty-catch.ts:9:5\n");
     expect(stdout).toContain("  LP001 empty-catch | severity: medium | confidence: high\n"); // the default
     expect(stdout).toContain("  LP001 empty-catch | severity: high | confidence: high\n"); // with positive evidence
-    expect(stdout).toContain("test/fixtures/positive/comment-only-catch.js:7:5\n");
+    expect(stdout.startsWith("comment-only-catch.js:7:5\n")).toBe(true); // the first file, sorted by path
     // CHANGED ON PURPOSE (Milestone 2.5): a comment lowers only confidence (severity was "low").
     expect(stdout).toContain("  LP001 empty-catch | severity: medium | confidence: medium\n"); // comment-only (rule 1)
     expect(stdout).toContain("    9 |   } catch (err) {}\n"); // gutter is as wide as the largest line number shown
-    expect(stdout).toContain("test/fixtures/positive/lp002-message-only.js:10:5\n");
+    expect(stdout).toContain("\nlp002-message-only.js:10:5\n");
     expect(stdout).toContain("  LP002 lost-error-cause | severity: medium | confidence: high\n");
     expect(stdout).toContain("  Why: ");
     expect(stdout).toContain("  Fix: ");
@@ -127,7 +131,7 @@ describe("CLI: scan", () => {
   });
 
   it("scans the whole fixtures folder (edge + negative + positive)", () => {
-    const { exitCode, stdout } = runCli(["scan", "test/fixtures"]);
+    const { exitCode, stdout } = runCli(["scan", "test/fixtures", "--no-config"]);
 
     // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none" (was 1 with findings).
     expect(exitCode).toBe(0);
@@ -147,15 +151,20 @@ describe("CLI: scan", () => {
   });
 
   it("scans a single file", () => {
-    const { exitCode, stdout } = runCli(["scan", "test/fixtures/positive/empty-catch.ts"]);
+    const { exitCode, stdout } = runCli(["scan", "test/fixtures/positive/empty-catch.ts", "--no-config"]);
 
     // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none" (was 1 with findings).
     expect(exitCode).toBe(0);
-    expect(stdout.endsWith("Scanned 1 file, 3 findings (LP001: 3)\n")).toBe(true);
+    // CHANGED ON PURPOSE (v0.4.2): the file has no Express handler, so the summary says that LP003
+    // had nothing to check; and a single file is shown relative to its own folder.
+    expect(
+      stdout.endsWith("Scanned 1 file, 3 findings (LP001: 3)\nNo Express handlers found: LP003 and fix previews only check Express apps.\n"),
+    ).toBe(true);
+    expect(stdout.startsWith("empty-catch.ts:9:5\n")).toBe(true);
   });
 
   it("scans the current folder when no path is given", () => {
-    const { exitCode, stdout } = runCli(["scan"], path.join(fixturesDir, "negative"));
+    const { exitCode, stdout } = runCli(["scan", "--no-config"], path.join(fixturesDir, "negative"));
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe("Scanned 11 files, 0 findings\n"); // 10 + LP003's negative fixture (Milestone 2.5)
@@ -173,7 +182,7 @@ describe("CLI: scan", () => {
     const before = fingerprintFolder(fixturesDir);
     // CHANGED ON PURPOSE (Milestone 2): findings alone now exit 0, so "--fail-on low" is passed to
     // keep using exit code 1 as proof that the scan really ran and found the positives.
-    const { exitCode } = runCli(["scan", "test/fixtures", "--fail-on", "low"]);
+    const { exitCode } = runCli(["scan", "test/fixtures", "--no-config", "--fail-on", "low"]);
     const after = fingerprintFolder(fixturesDir);
 
     expect(exitCode).toBe(1); // the scan really ran and found the positives
@@ -186,7 +195,7 @@ describe("CLI: scan", () => {
 
   it("does not create, delete or modify any file with --fix-preview either (fixes are only shown)", () => {
     const before = fingerprintFolder(fixturesDir);
-    const { exitCode, stdout } = runCli(["scan", "test/fixtures", "--fix-preview", "--fail-on", "low"]);
+    const { exitCode, stdout } = runCli(["scan", "test/fixtures", "--no-config", "--fix-preview", "--fail-on", "low"]);
     const after = fingerprintFolder(fixturesDir);
 
     expect(exitCode).toBe(1);
@@ -262,8 +271,10 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
         "Warning: broken.js: 1 syntax error (first at line 1: Expression expected.); " +
           "findings in this file may be incomplete\n",
       );
+      // CHANGED ON PURPOSE (v0.4.2): the "No Express handlers found" line.
       expect(stdout).toBe(
-        "Scanned 1 file, 0 findings\n1 file had syntax errors; findings in it may be incomplete (see the warnings).\n",
+        "Scanned 1 file, 0 findings\n1 file had syntax errors; findings in it may be incomplete (see the warnings).\n" +
+          "No Express handlers found: LP003 and fix previews only check Express apps.\n",
       );
     });
   });
@@ -326,7 +337,10 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
       expect(stderr).toBe("");
       expect(stdout).toContain("Scanned 1 file, 1 finding (LP001: 1)\n");
       expect(stdout).toContain("Not scanned: 2 folders (your exclude patterns: 2).");
-      expect(stdout).toContain("Config file: logpilot.config.json\n");
+      // CHANGED ON PURPOSE (v0.4.2): paths are relative to the scanned folder (packages/web), also
+      // the config file's (was "logpilot.config.json", relative to the folder LogPilot ran in).
+      expect(stdout).toContain("Config file: ../../logpilot.config.json\n");
+      expect(stdout).toMatch(/^src\/app\.js:1:17$/m); // was packages/web/src/app.js
     });
   });
 
@@ -477,7 +491,8 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
       expect(stderr).toBe(""); // the syntax-error warning is in the JSON instead
       const report = JSON.parse(stdout);
       // CHANGED ON PURPOSE (Milestone 3): schema version 2 adds fix, config.fixPreview and summary.fixes.
-      expect(report.schemaVersion).toBe(2);
+      // CHANGED ON PURPOSE (v0.4.2): schema version 3: paths are relative to the scanned folder.
+      expect(report.schemaVersion).toBe(3);
       // CHANGED ON PURPOSE (Milestone 2.5): LP001 changed behaviour, so its version went from 1 to 2.
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 was added.
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 case E severity went from medium to low: version 1 -> 2.
@@ -662,6 +677,133 @@ describe("CLI: --fix-preview (Milestone 3)", () => {
       expect(report.config.fixPreview).toBe(false);
       expect(report.summary.fixes).toBeNull();
       expect(report.findings[0].fix).toBeNull();
+    });
+  });
+});
+
+// v0.4.2: three early testers saw paths relative to the folder LogPilot was run from, which broke
+// on another drive (D:/... in the report, "a/D:/..." in diff headers) and with "../..".
+describe("CLI: every path is relative to the scanned folder (v0.4.2)", () => {
+  const ROUTE = [
+    'const express = require("express");',
+    "const app = express();",
+    'app.get("/users", async (req, res) => {',
+    "  try {",
+    "    res.json(await loadUsers());",
+    "  } catch (err) {",
+    '    res.status(500).json({ message: "Server error" });',
+    "  }",
+    "});",
+    "",
+  ].join("\n");
+  // Spaces in the scanned folder's own name and inside the project.
+  const files = { "my project/src/my routes/users.js": ROUTE, "my project/src/app.js": EMPTY_CATCH, "elsewhere/deeper/.keep": "" };
+
+  /** The text report (stdout) of `scan <target> --fix-preview`, run from `cwd`. */
+  function textReport(target: string, cwd: string): string {
+    const { exitCode, stdout, stderr } = runCli(["scan", target, "--fix-preview", "--no-config"], cwd);
+    expect([exitCode, stderr]).toEqual([0, ""]);
+    return stdout;
+  }
+
+  it("prints the same report from the project, from another folder or drive, and with ../..", () => {
+    withProject(files, (dir) => {
+      const project = path.join(dir, "my project");
+      const fromInside = textReport(".", project);
+      const absoluteFromRepo = textReport(project, projectRoot); // on Windows CI and here: another drive than the temp folder
+      const relativeUp = textReport("../../my project", path.join(dir, "elsewhere", "deeper"));
+
+      expect(fromInside).toMatch(/^src\/app\.js:1:17$/m);
+      expect(fromInside).toMatch(/^src\/my routes\/users\.js:6:5$/m);
+      expect(fromInside).toContain("    --- a/src/my routes/users.js\n    +++ b/src/my routes/users.js\n");
+      expect(absoluteFromRepo).toBe(fromInside);
+      expect(relativeUp).toBe(fromInside);
+      for (const report of [fromInside, absoluteFromRepo, relativeUp]) {
+        expect(report).not.toContain("../");
+        expect(report).not.toMatch(/[A-Za-z]:[\/]/); // no drive letter (C:/, D:\)
+        expect(report).not.toContain(path.basename(dir)); // no part of the temp folder's path
+      }
+    });
+  });
+
+  it.runIf(process.platform === "win32")("works when the scanned folder is on another drive than the current folder (Windows)", () => {
+    withProject(files, (dir) => {
+      const drive = (p: string) => path.parse(path.resolve(p)).root.toUpperCase();
+      // Precondition: the temp folder and this repository are on different drives (true on this
+      // machine and on GitHub's Windows runners), or this test proves nothing.
+      expect(drive(dir), "the temp folder is on the same drive as the repository").not.toBe(drive(projectRoot));
+
+      const report = textReport(path.join(dir, "my project"), projectRoot);
+      expect(report).toContain("    --- a/src/my routes/users.js\n");
+      expect(report).not.toContain(`a/${drive(dir)}`); //                       a/C:\
+      expect(report).not.toContain(`a/${drive(dir).split(path.sep).join("/")}`); // a/C:/
+    });
+  });
+
+  it("shows a single scanned file relative to its own folder", () => {
+    withProject(files, (dir) => {
+      const report = textReport(path.join(dir, "my project", "src", "my routes", "users.js"), projectRoot);
+
+      expect(report).toMatch(/^users\.js:6:5$/m);
+      expect(report).toContain("    --- a/users.js\n    +++ b/users.js\n");
+    });
+  });
+
+  it("writes the same relative paths in JSON, and its diffs apply with git apply in the scanned folder", () => {
+    withProject(files, (dir) => {
+      const project = path.join(dir, "my project");
+      const { stdout } = runCli(["scan", project, "--fix-preview", "--format", "json", "--no-config"], projectRoot);
+      const report = JSON.parse(stdout);
+
+      expect(report.findings.map((f: { file: string }) => f.file)).toEqual(["src/app.js", "src/my routes/users.js"]);
+      const diff: string = report.findings[1].fix.diff;
+      expect(diff.startsWith("--- a/src/my routes/users.js\n+++ b/src/my routes/users.js\n@@ ")).toBe(true);
+
+      // The real check that the headers are valid: git itself accepts the diff (it only checks; nothing is changed).
+      writeFileSync(path.join(dir, "fix.diff"), diff);
+      const check = spawnSync("git", ["apply", "--check", "--verbose", path.join(dir, "fix.diff")], { cwd: project, encoding: "utf8" });
+      expect(check.error, "git must be installed to run this test").toBeUndefined();
+      expect([check.status, check.stderr]).toEqual([0, "Checking patch src/my routes/users.js...\n"]);
+    });
+  });
+
+  it("shows the config file and the exclude root relative to the scanned folder too", () => {
+    withProject({ ...files, "logpilot.config.json": '{ "exclude": ["nothing/**"] }', ".git/HEAD": "ref: refs/heads/main\n" }, (dir) => {
+      const { stdout, stderr } = runCli(["scan", path.join(dir, "my project")], projectRoot);
+
+      expect(stdout).toContain("Config file: ../logpilot.config.json\n");
+      expect(stderr).toBe('Warning: exclude pattern "nothing/**" matched nothing (patterns are relative to ..); check the spelling\n');
+    });
+  });
+});
+
+// v0.4.2: an early tester's Next.js project got 0 LP003 findings without knowing LP003 had nothing to check.
+describe("CLI: says when no Express handler was found (v0.4.2)", () => {
+  const line = "No Express handlers found: LP003 and fix previews only check Express apps.\n";
+
+  it("says so once, in the summary, when no scanned file has an Express handler", () => {
+    withProject({ "a.js": EMPTY_CATCH, "b.ts": "export async function GET() { return Response.json({ ok: true }); }\n" }, (dir) => {
+      const { stdout } = runCli(["scan", "."], dir);
+
+      expect(stdout.endsWith(`Scanned 2 files, 1 finding (LP001: 1)\n${line}`)).toBe(true);
+      expect(stdout.split(line)).toHaveLength(2); // exactly once
+      expect(JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout).summary.filesWithExpressHandlers).toBe(0);
+    });
+  });
+
+  it("does not say it when at least one file has an Express handler, even one with no finding", () => {
+    const handled = 'const app = require("express")();\napp.get("/", (req, res) => { res.json({ ok: true }); });\n';
+    withProject({ "a.js": EMPTY_CATCH, "server.js": handled }, (dir) => {
+      const { stdout } = runCli(["scan", "."], dir);
+
+      expect(stdout).not.toContain("No Express handlers");
+      expect(JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout).summary.filesWithExpressHandlers).toBe(1);
+    });
+  });
+
+  it("does not say it when nothing was scanned", () => {
+    withProject({ "notes.md": "# notes\n" }, (dir) => {
+      expect(runCli(["scan", "."], dir).stdout).toBe("Scanned 0 files, 0 findings\n");
     });
   });
 });

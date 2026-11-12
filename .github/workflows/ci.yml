@@ -37,3 +37,8 @@ jobs:
 
       - name: Type-check, build and run tests
         run: npm test
+
+      # LogPilot scans its own code with the build from the step above. logpilot.config.json
+      # excludes test/fixtures/ (code written to be reported). Any finding fails this step.
+      - name: Scan LogPilot's own code with LogPilot
+        run: node dist/cli.js scan . --fail-on low

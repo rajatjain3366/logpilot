@@ -8,7 +8,7 @@ LogPilot is an open-source, local command-line tool that scans JavaScript and Ty
 (Node.js) projects for code that would leave you **without evidence** when something goes
 wrong in production, for example an error that is caught and then silently thrown away.
 
-> **Status: early prototype, v0.4.1.** Three rules exist today: LP001, LP002 and LP003, and LP003
+> **Status: early prototype, v0.4.2.** Three rules exist today: LP001, LP002 and LP003, and LP003
 > findings can show a proposed fix ([fix previews](#fix-previews), never applied). The CLI is
 > not published to npm yet; see [Quick start](#quick-start) for running it from this repository.
 > Before relying on the results, read [Accuracy](#accuracy).
@@ -93,11 +93,12 @@ Scan options:
 
 ## Example output
 
-An LP003 finding (from `node dist/cli.js scan test/fixtures/positive/lp003-error-responses.js`;
-the file has 8 findings, the first is shown):
+An LP003 finding (from `node dist/cli.js scan test/fixtures/positive/lp003-error-responses.js --no-config`;
+the file has 8 findings, the first is shown. `--no-config` because this repository's own
+`logpilot.config.json` excludes the test fixtures):
 
 ```text
-test/fixtures/positive/lp003-error-responses.js:14:5
+lp003-error-responses.js:14:5
   LP003 unlogged-error-response | severity: high | confidence: high
   Evidence:
     14 |   } catch (err) {
@@ -118,10 +119,10 @@ test/fixtures/positive/lp003-error-responses.js:14:5
 Scanned 1 file, 8 findings (LP003: 8)
 ```
 
-An LP002 finding (from `node dist/cli.js scan test/fixtures/positive/lp002-options-mistake.ts`):
+An LP002 finding (from `node dist/cli.js scan test/fixtures/positive/lp002-options-mistake.ts --no-config`):
 
 ```text
-test/fixtures/positive/lp002-options-mistake.ts:11:5
+lp002-options-mistake.ts:11:5
   LP002 lost-error-cause | severity: high | confidence: high
   Evidence:
     11 |     throw new Error("Failed to fetch profile", err);
@@ -134,6 +135,11 @@ test/fixtures/positive/lp002-options-mistake.ts:11:5
        output or in error.stack, so on its own it does not expose internal details to API clients;
        decide what clients see in your error handler.
 ```
+
+**Paths are relative to the folder you scan** (for a single file, to its folder), whichever folder
+or drive you run LogPilot from: `scan D:\projects\shop` and `scan ../..` both print
+`src/routes/users.js:14:5`. This holds for the text report, the JSON report and the diffs of
+[fix previews](#fix-previews), whose `a/` and `b/` paths you can apply from the scanned folder.
 
 **Concise by default.** The first finding of each rule and kind gets the full "Why" and "Fix".
 Later findings of the same kind get one line instead, such as
@@ -156,15 +162,15 @@ and counts such files in the summary. Warnings do not change the exit code.
 LogPilot never changes your files.** Review the fix and apply it yourself. With `--format json`, each
 finding carries the fix as exact text edits (see [JSON output](#json-output)).
 
-From `node dist/cli.js scan test/fixtures/fix/loggers/pino-in-file.js --fix-preview` (the file
-creates a pino logger, so the fix uses it; the "Why" and "Fix" lines are left out here):
+From `node dist/cli.js scan test/fixtures/fix/loggers/pino-in-file.js --fix-preview --no-config`
+(the file creates a pino logger, so the fix uses it; the "Why" and "Fix" lines are left out here):
 
 ```text
   Proposed fix (preview only, not applied): Log the caught error with logger.error just before the
     error response on line 13.
     Logger: logger.error (confidence high: this file creates `logger` with pino)
-    --- a/test/fixtures/fix/loggers/pino-in-file.js
-    +++ b/test/fixtures/fix/loggers/pino-in-file.js
+    --- a/pino-in-file.js
+    +++ b/pino-in-file.js
     @@ -10,6 +10,7 @@
        try {
          res.json(await loadOrder(req.params.id));
@@ -401,6 +407,11 @@ second example under [The problem](#the-problem)).
 - **Error middleware:** the four-parameter `(err, req, res, next)` form. It is checked as a whole:
   it receives every error passed on with `next(err)`.
 
+**No Express handler at all?** Then LP003 and fix previews had nothing to check, and the summary
+says so once: `No Express handlers found: LP003 and fix previews only check Express apps.` (in
+JSON, `summary.filesWithExpressHandlers` is `0`). This is common in Next.js apps and libraries:
+0 LP003 findings there does not mean the error responses are fine.
+
 **The error counts as kept** (no finding) when it is passed to any function: a logger,
 `console.error`, `Sentry.captureException`, `next(err)`, or your own helper. LogPilot cannot see
 inside helpers from other files, so it assumes they handle the error. It also counts as kept when
@@ -599,14 +610,15 @@ node dist/cli.js scan . --format json --output logpilot-report.json
 LogPilot refuses an `--output` file that ends in a JavaScript or TypeScript extension (`.js`, `.ts`,
 ...), so a typo can never overwrite source code.
 
-The report has this shape (schema version 2). The `summary` below is real: the MongoDB Node.js
+The report has this shape (schema version 3). The `summary` below is real: the MongoDB Node.js
 driver at the commit listed in [docs/evaluation.md](docs/evaluation.md), scanned with default
-settings (a library, so LP003 finds nothing there):
+settings (a library, so LP003 finds nothing there; the 2 files with Express handlers are a small
+docs preview server and a test with a mock request handler):
 
 ```json
 {
-  "schemaVersion": 2,
-  "tool": { "name": "logpilot", "version": "0.4.1" },
+  "schemaVersion": 3,
+  "tool": { "name": "logpilot", "version": "0.4.2" },
   "rules": [
     { "id": "LP001", "name": "empty-catch", "version": 2 },
     { "id": "LP002", "name": "lost-error-cause", "version": 1 },
@@ -615,6 +627,7 @@ settings (a library, so LP003 finds nothing there):
   "config": { "file": null, "defaultExcludes": true, "exclude": [], "minSeverity": "low", "failOn": "none", "fixPreview": false },
   "summary": {
     "filesScanned": 737,
+    "filesWithExpressHandlers": 2,
     "findings": 31,
     "findingsByRule": { "LP001": 18, "LP002": 13, "LP003": 0 },
     "findingsBySeverity": { "high": 5, "medium": 17, "low": 9 },
@@ -666,6 +679,10 @@ settings (a library, so LP003 finds nothing there):
   - Version 2 added `fix`, `config.fixPreview` and `summary.fixes`. Version 1 promised that every
     object always has all its keys, so a tool could check the exact key set; that is why adding
     keys changed the version this one time.
+  - Version 3 (v0.4.2): every path (`file`, `path`, `config.file` and the paths in `diff`) is
+    relative to the scanned folder (for a single file, its folder). Before, paths were relative to
+    the folder LogPilot was run from, so `scan src` from the project root gave `src/app.js` and now
+    gives `app.js`. Version 3 also added `summary.filesWithExpressHandlers`.
 - **Stable output.** The same code gives byte-identical JSON on every run: keys in a fixed order,
   sorted lists, `/` in paths, no timestamps. Every object always has all its keys: missing values
   are `null`, and counts of 0 are included.
@@ -861,6 +878,8 @@ letter, `cd` into the folder again with an uppercase drive letter (for example
 
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, tests, project layout, and how to propose
   a new rule.
+- LogPilot scans its own code in CI (`node dist/cli.js scan . --fail-on low`, test fixtures excluded
+  in [logpilot.config.json](logpilot.config.json)) and must report 0 findings.
 - [Issues](https://github.com/rajatjain3366/logpilot/issues/new/choose): report a false positive,
   a missed problem, or a bug. Please share minimal code snippets, never real secrets.
 - [SECURITY.md](SECURITY.md): how to report a vulnerability privately.

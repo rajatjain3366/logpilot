@@ -451,37 +451,57 @@ function isPassedOn(mention: ts.Identifier): boolean {
 }
 
 /**
- * The fix suggestion, using the catch's real variable name (e.g. `parseError`) in the examples.
- * If the catch has no variable (`catch {}`) or destructures the error (`catch ({ message })`),
- * the examples use `err` and we add a hint to write `catch (err)`.
+ * The name the suggestion's examples use for the error: the catch's own variable (e.g.
+ * `parseError`), or `err` when there is none (`catch {}`), when the error is destructured
+ * (`catch ({ message })`), or when its name starts with `_` (`catch (_)`, `catch (_err)`): that
+ * name says "deliberately unused", so code that uses it would read wrongly.
+ */
+function exampleName(variableName: string | undefined): string {
+  return variableName === undefined || variableName.startsWith("_") ? "err" : variableName;
+}
+
+/** The hint added when the examples cannot use the catch's own variable name, or "". */
+function renameHint(variableName: string | undefined, purpose: string): string {
+  if (variableName === undefined) {
+    return ` This catch does not keep the error in a variable; write \`catch (err)\` ${purpose}.`;
+  }
+  if (variableName.startsWith("_")) {
+    return (
+      ` The leading underscore in \`${variableName}\` usually means the error is ignored on purpose; ` +
+      `if you handle it, rename it to \`err\` (\`catch (err)\`).`
+    );
+  }
+  return "";
+}
+
+/**
+ * The fix suggestion, using the catch's real variable name in the examples (see exampleName).
+ * The log message and error message in the examples are placeholders: LogPilot cannot know what
+ * the try block does, so it does not guess (an earlier version said "failed to load config" for
+ * every catch).
  */
 function buildSuggestion(catchClause: ts.CatchClause): string {
   const variableName = getCatchVariableName(catchClause);
-  const name = variableName ?? "err";
-
-  let suggestion =
+  const name = exampleName(variableName);
+  return (
     "Handle the error explicitly: log it with your project's logger " +
-    `(e.g. logger.error(${logArgument(name)}, "failed to load config")), rethrow it with context ` +
-    `(throw new Error("Failed to load config", { cause: ${name} })), or return a deliberate ` +
+    `(e.g. logger.error(${logArgument(name)}, "<what failed>")), rethrow it with context ` +
+    `(throw new Error("<what failed>", { cause: ${name} })), or return a deliberate ` +
     "fallback value. When logging, include the error and safe context such as the operation " +
-    "name or record IDs, never passwords, tokens, or full request bodies.";
-  if (variableName === undefined) {
-    suggestion += " This catch does not keep the error in a variable; write `catch (err)` so the error is available to handle.";
-  }
-  return suggestion;
+    "name or record IDs, never passwords, tokens, or full request bodies." +
+    renameHint(variableName, "so the error is available to handle")
+  );
 }
 
 /** Rule 2's suggestion: keep the main error; optionally leave a quiet trace of the secondary one. */
 function buildSecondaryFailureSuggestion(catchClause: ts.CatchClause, outerError: OuterError): string {
   const variableName = getCatchVariableName(catchClause);
-  let suggestion =
+  return (
     `Usually no change is needed, as long as \`${outerError.name}\` keeps being passed on. If this secondary ` +
     "failure could matter, record it at debug level instead of dropping it, e.g. " +
-    `logger.debug(${logArgument(variableName ?? "err")}, "could not add details to the error").`;
-  if (variableName === undefined) {
-    suggestion += " This catch does not keep the error in a variable; write `catch (err)` to log it.";
-  }
-  return suggestion;
+    `logger.debug(${logArgument(exampleName(variableName))}, "could not add details to the error").` +
+    renameHint(variableName, "to log it")
+  );
 }
 
 /** Loggers like pino only format an error nicely under the key "err", hence { err: parseError }. */

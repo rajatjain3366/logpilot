@@ -44,18 +44,56 @@ describe("LP001 empty-catch: positive fixtures (must report)", () => {
     const [withErr, withoutVariable, withError] = runOnFixture("positive/empty-catch.ts");
     const [withParseError] = runOnFixture("positive/empty-catch-in-component.tsx");
 
+    // CHANGED ON PURPOSE (v0.4.2): the example messages are a neutral placeholder "<what failed>" (they
+    // said "failed to load config" for every catch, which confused an early tester).
     // catch (err) {}
-    expect(withErr.suggestion).toContain('logger.error({ err }, "failed to load config")');
-    expect(withErr.suggestion).toContain("{ cause: err })");
+    expect(withErr.suggestion).toContain('logger.error({ err }, "<what failed>")');
+    expect(withErr.suggestion).toContain('throw new Error("<what failed>", { cause: err })');
     // catch {}  -> examples fall back to `err`
     expect(withoutVariable.suggestion).toContain("{ cause: err })");
     // catch (error) {}  -> pino needs the key "err", so { err: error }
-    expect(withError.suggestion).toContain('logger.error({ err: error }, "failed to load config")');
+    expect(withError.suggestion).toContain('logger.error({ err: error }, "<what failed>")');
     expect(withError.suggestion).toContain("{ cause: error })");
     expect(withError.suggestion).not.toContain("{ cause: err })");
     // catch (parseError) {}
-    expect(withParseError.suggestion).toContain('logger.error({ err: parseError }, "failed to load config")');
+    expect(withParseError.suggestion).toContain('logger.error({ err: parseError }, "<what failed>")');
     expect(withParseError.suggestion).toContain("{ cause: parseError })");
+  });
+
+  it("never names an operation it cannot know in the suggestion", () => {
+    for (const finding of [...runOnFixture("positive/empty-catch.ts"), ...runOnFixture("positive/comment-only-catch.js")]) {
+      expect(finding.suggestion).not.toMatch(/config/i);
+    }
+  });
+
+  it("uses `err` in the examples for an underscore name such as `_` or `_err`, and says to rename it", () => {
+    const [underscore, underscoreName, plain] = runOnCode(
+      "a.ts",
+      "try { a(); } catch (_) {}\ntry { b(); } catch (_cleanupError) {}\ntry { c(); } catch (e) {}\n",
+    );
+
+    expect(underscore.suggestion).toContain('logger.error({ err }, "<what failed>")');
+    expect(underscore.suggestion).toContain("{ cause: err })");
+    expect(underscore.suggestion).not.toContain("err: _");
+    expect(underscore.suggestion).toContain(
+      "The leading underscore in `_` usually means the error is ignored on purpose; if you handle it, rename it to `err` (`catch (err)`).",
+    );
+    expect(underscoreName.suggestion).toContain("{ cause: err })");
+    expect(underscoreName.suggestion).not.toContain("_cleanupError })");
+    expect(underscoreName.suggestion).toContain("The leading underscore in `_cleanupError`");
+    // A plain name is used as it is, with no rename hint.
+    expect(plain.suggestion).toContain("{ cause: e })");
+    expect(plain.suggestion).not.toContain("underscore");
+    expect(plain.suggestion).not.toContain("rename");
+  });
+
+  it("uses `err` for an underscore name in the secondary-failure suggestion too", () => {
+    const code = "try { run(); } catch (error) {\n  try { cleanup(); } catch (_) {}\n  throw error;\n}\n";
+    const [finding] = runOnCode("a.ts", code);
+
+    expect(finding.severity).toBe("low"); // the secondary-failure case
+    expect(finding.suggestion).toContain('logger.debug({ err }, "could not add details to the error")');
+    expect(finding.suggestion).toContain("The leading underscore in `_`");
   });
 
   it("copies the catch clause's source lines as evidence", () => {

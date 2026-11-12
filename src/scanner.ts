@@ -7,6 +7,7 @@ import ts from "typescript";
 import { checkSourceFile, findSyntaxErrors, parseSource } from "./analyze.js";
 import { ExcludePatterns, fileSkipByContent, fileSkipByName, folderSkip } from "./file-selection.js";
 import { attachFixPreviews } from "./fixes.js";
+import { findExpressHandlers } from "./rules/express.js";
 import type { Finding, ScanWarning, SkippedPath, SuppressedFinding } from "./types.js";
 
 export { parseSource, RULES } from "./analyze.js";
@@ -16,6 +17,8 @@ export const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".ts", ".tsx", ".mjs", 
 
 export interface ScanResult {
   filesScanned: number;
+  /** Scanned files with at least one Express handler (LP003 and fix previews look only at those). */
+  filesWithExpressHandlers: number;
   findings: Finding[];
   /** Findings hidden by `logpilot-ignore` comments, with the reason given there. */
   suppressed: SuppressedFinding[];
@@ -38,9 +41,18 @@ export interface ScanOptions {
 }
 
 /**
+ * The folder a scan of `absoluteTarget` reports paths from: the folder itself, or for a single
+ * file, the folder that contains it. Every path in the report is relative to this folder.
+ */
+export function scanRootOf(absoluteTarget: string): string {
+  return statSync(absoluteTarget, { throwIfNoEntry: false })?.isDirectory() ? absoluteTarget : path.dirname(absoluteTarget);
+}
+
+/**
  * Scans one file or a whole folder and returns the findings.
  * Throws an Error when the scan cannot start (path missing, or not a JS/TS file).
- * `cwd` is only used to print short, relative file paths.
+ * `cwd` is only used to find `targetPath` when it is relative. Paths in the result are relative to
+ * the scanned folder (see scanRootOf), whatever `cwd` is.
  */
 export function scanPath(targetPath: string, cwd: string = process.cwd(), options: ScanOptions = {}): ScanResult {
   const defaultExcludes = options.defaultExcludes ?? true;
@@ -50,12 +62,13 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
     throw new Error(`path "${targetPath}" does not exist`);
   }
 
-  const result: ScanResult = { filesScanned: 0, findings: [], suppressed: [], warnings: [], skipped: [] };
-  const excludeRoot = options.excludeRoot ?? (stats.isDirectory() ? absoluteTarget : path.dirname(absoluteTarget));
+  const result: ScanResult = { filesScanned: 0, filesWithExpressHandlers: 0, findings: [], suppressed: [], warnings: [], skipped: [] };
+  const scanRoot = scanRootOf(absoluteTarget);
+  const excludeRoot = options.excludeRoot ?? scanRoot;
   const excludes = new ExcludePatterns(options.exclude ?? [], excludeRoot);
   let files: string[];
   if (stats.isDirectory()) {
-    files = findSourceFiles(absoluteTarget, { cwd, defaultExcludes, excludes, result });
+    files = findSourceFiles(absoluteTarget, { scanRoot, defaultExcludes, excludes, result });
   } else if (isSourceFile(absoluteTarget)) {
     files = [absoluteTarget];
   } else {
@@ -66,7 +79,7 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
 
   // Sort by the printed path so the report is identical on every run and every OS.
   const sorted = files
-    .map((file) => ({ file, displayPath: toDisplayPath(file, cwd) }))
+    .map((file) => ({ file, displayPath: toDisplayPath(file, scanRoot) }))
     .sort((a, b) => (a.displayPath < b.displayPath ? -1 : a.displayPath > b.displayPath ? 1 : 0));
 
   for (const { file, displayPath } of sorted) {
@@ -112,10 +125,11 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
       });
     }
     const { kept, suppressed, warnings } = checkSourceFile(sourceFile, displayPath);
+    // Only to tell the user when LP003 had nothing to check (it looks at Express handlers only).
+    if (findExpressHandlers(sourceFile).length > 0) result.filesWithExpressHandlers++;
     if (options.fixPreview) {
       // Proposed fixes are made and checked in memory, from the text already read: nothing is written.
       // Logger detection may read one imported module, but only inside the scanned folder.
-      const scanRoot = stats.isDirectory() ? absoluteTarget : path.dirname(absoluteTarget);
       warnings.push(...attachFixPreviews(sourceFile, displayPath, kept, syntaxErrors.length > 0, scanRoot));
     }
     result.findings.push(...kept);
@@ -125,7 +139,7 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
   }
   result.skipped.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   for (const pattern of excludes.unused()) {
-    const root = toDisplayPath(excludeRoot, cwd) || ".";
+    const root = toDisplayPath(excludeRoot, scanRoot);
     result.warnings.push({
       type: "unused-exclude",
       message: `exclude pattern "${pattern}" matched nothing (patterns are relative to ${root}); check the spelling`,
@@ -136,7 +150,7 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
 
 /** What a folder walk needs: where paths are shown from, which defaults apply, and where to record skips. */
 interface WalkContext {
-  cwd: string;
+  scanRoot: string;
   defaultExcludes: boolean;
   excludes: ExcludePatterns;
   result: ScanResult;
@@ -162,10 +176,10 @@ function findSourceFiles(dir: string, walk: WalkContext): string[] {
       const skip = folderSkip(entry.name, walk.defaultExcludes);
       const pattern = skip ? undefined : walk.excludes.match(fullPath, "folder");
       if (skip) {
-        walk.result.skipped.push({ path: toDisplayPath(fullPath, walk.cwd), kind: "folder", ...skip });
+        walk.result.skipped.push({ path: toDisplayPath(fullPath, walk.scanRoot), kind: "folder", ...skip });
       } else if (pattern !== undefined) {
         walk.result.skipped.push({
-          path: toDisplayPath(fullPath, walk.cwd),
+          path: toDisplayPath(fullPath, walk.scanRoot),
           kind: "folder",
           reason: "user-exclude",
           detail: `your exclude pattern "${pattern}"`,
@@ -189,7 +203,11 @@ function isSourceFile(fileName: string): boolean {
   return SOURCE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
 }
 
-/** Path relative to `cwd`, with "/" separators on every OS (so output looks the same everywhere). */
-function toDisplayPath(file: string, cwd: string): string {
-  return path.relative(cwd, file).split(path.sep).join("/");
+/**
+ * A path as shown to the user: relative to `root` (the scanned folder), with "/" separators on
+ * every OS, so the output is the same wherever LogPilot is run from. `root` itself is ".". A path on
+ * another drive than `root` (only possible for a --config file) stays absolute, with "/".
+ */
+export function toDisplayPath(file: string, root: string): string {
+  return path.relative(root, file).split(path.sep).join("/") || ".";
 }

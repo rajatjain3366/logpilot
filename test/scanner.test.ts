@@ -64,7 +64,9 @@ describe("scanner", () => {
 
     expect(result.filesScanned).toBe(1);
     expect(result.findings).toHaveLength(1);
-    expect(result.findings[0].file).toBe("src/app.ts");
+    // CHANGED ON PURPOSE (v0.4.2): a single file is shown relative to its own folder (was src/app.ts,
+    // relative to the folder LogPilot ran in).
+    expect(result.findings[0].file).toBe("app.ts");
   });
 
   it("lists a file's findings from top to bottom, whichever rule found them", () => {
@@ -215,8 +217,9 @@ describe("scanner: default folder excludes (Milestone 2)", () => {
       const fromScannedFolder = scanPath("web", dir, { exclude: ["docs/**"] });
       const fromProjectRoot = scanPath("web", dir, { exclude: ["web/docs/**"], excludeRoot: dir });
 
-      expect(fromScannedFolder.findings.map((f) => f.file)).toEqual(["web/src/b.js"]);
-      expect(fromProjectRoot.findings.map((f) => f.file)).toEqual(["web/src/b.js"]);
+      // CHANGED ON PURPOSE (v0.4.2): paths are relative to the scanned folder "web" (were web/src/b.js).
+      expect(fromScannedFolder.findings.map((f) => f.file)).toEqual(["src/b.js"]);
+      expect(fromProjectRoot.findings.map((f) => f.file)).toEqual(["src/b.js"]);
     });
   });
 

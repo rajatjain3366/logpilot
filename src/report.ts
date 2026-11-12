@@ -222,6 +222,10 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
         "may be incomplete (see the warnings).",
     );
   }
+  if (result.filesScanned > 0 && result.filesWithExpressHandlers === 0) {
+    // Without this, "0 LP003 findings" in a Next.js or library project could look like a clean result.
+    lines.push(NO_EXPRESS_LINE);
+  }
   if (options.configFile !== undefined) lines.push(`Config file: ${options.configFile}`);
   if (options.fixPreview) {
     const fixable = result.findings.filter((f) => FIXABLE_RULES.has(f.ruleId) && f.fix !== undefined);
@@ -233,6 +237,9 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
   }
   return lines.join("\n");
 }
+
+/** Shown once in the summary when no scanned file has an Express handler. */
+export const NO_EXPRESS_LINE = "No Express handlers found: LP003 and fix previews only check Express apps.";
 
 /** e.g. "Scanned 7 files, 6 findings (LP001: 6)" or "Scanned 4 files, 0 findings". */
 function formatScannedLine(result: ScanResult): string {

@@ -11,13 +11,17 @@
 // Version 2 (Milestone 3): every finding has a `fix` key, config has `fixPreview`, and the summary
 // has `fixes`. Version 1 promised that every object always has all its keys, so a reader could
 // check the exact set; that is why adding these keys changed the version this one time.
+// Version 3 (v0.4.2): every path (`file`, `path`, `config.file`, the paths in `diff`) is relative
+// to the scanned folder (for a single file: its folder). Before, paths were relative to the folder
+// LogPilot was run from, so they changed with it; that changes which values these keys hold.
+// Also added: `summary.filesWithExpressHandlers`.
 
 import { FIXABLE_RULES } from "./fixes.js";
 import type { ScanResult } from "./scanner.js";
 import type { FailOn } from "./severity.js";
 import type { Finding, FixPreview, ScanWarning, Severity } from "./types.js";
 
-export const JSON_SCHEMA_VERSION = 2;
+export const JSON_SCHEMA_VERSION = 3;
 
 /** What the JSON report needs besides the scan result: settings, rules and the outcome. */
 export interface JsonReportContext {
@@ -56,6 +60,8 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
     },
     summary: {
       filesScanned: result.filesScanned,
+      // 0 means LP003 (and fix previews) had nothing to check: it looks at Express handlers only.
+      filesWithExpressHandlers: result.filesWithExpressHandlers,
       findings: context.shown.length,
       // Every known rule and every severity is listed, also with 0, so the keys never change.
       findingsByRule: Object.fromEntries(context.rules.map((rule) => [rule.id, context.shown.filter((f) => f.ruleId === rule.id).length])),

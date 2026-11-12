@@ -112,4 +112,32 @@ describe("loadConfig", () => {
     expect(() => load(text)).toThrow(ConfigError);
     expect(() => load(text)).toThrow(message);
   });
+
+  /** The error loadConfig throws for `file`. */
+  function thrownBy(file: string): ConfigError {
+    try {
+      loadConfig(file, "logpilot.config.json");
+    } catch (error) {
+      return error as ConfigError;
+    }
+    throw new Error("loadConfig did not throw");
+  }
+
+  // v0.4.2: LogPilot's own LP002 found these two (reported by an early tester scanning this repo).
+  it("keeps the JSON parser's error as the cause of an invalid-JSON error", () => {
+    const file = path.join(tmp, "logpilot.config.json");
+    writeFileSync(file, "{ not json");
+    const error = thrownBy(file);
+
+    expect(error).toBeInstanceOf(ConfigError);
+    expect(error.cause).toBeInstanceOf(SyntaxError);
+  });
+
+  it("keeps the file system's error as the cause of a cannot-be-read error", () => {
+    const error = thrownBy(tmp); // a folder: reading it fails with EISDIR on every OS
+
+    expect(error).toBeInstanceOf(ConfigError);
+    expect(error.message).toContain("logpilot.config.json: cannot be read (");
+    expect((error.cause as NodeJS.ErrnoException).code).toBe("EISDIR");
+  });
 });

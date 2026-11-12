@@ -65,8 +65,9 @@ Copy this table into a message and fill it in. Use the rule and line from the re
 need to copy any code.
 
 **Write each file path relative to your project folder,** for example `backend/routes/auth.js:92`.
-Do not use the full path from the report, such as `C:/Users/you/...`: it can show your user name
-and folder names.
+Since v0.4.2 the report already shows paths relative to the folder you scanned, so if you scanned
+`backend`, the report says `routes/auth.js:92`; add `backend/` in front. Never send a full path
+such as `C:/Users/you/...`: it can show your user name and folder names.
 
 | # | Rule (e.g. LP003) | File:line | Useful? (fixed / will fix / not useful / didn't understand) | If not useful: why? | Proposed fix (optional): looks right / would change it / wrong |
 |---|---|---|---|---|---|

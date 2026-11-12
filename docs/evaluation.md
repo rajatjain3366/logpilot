@@ -14,6 +14,8 @@ measurement.
 
 [Milestone 3](#milestone-3-lp003-fix-previews-on-the-tuning-apps) checks LP003's fix previews on the
 tuning apps; it measures the fixes, not the findings, and is not a precision claim.
+[Early testers](#early-testers) records what four people found when they ran v0.4.1 on their own
+projects; it is not a precision claim either.
 
 **Commit hashes:** the LogPilot commits cited here (`be0126b`, `15f0b46`, `5c9a4a6`, `318499c`, and any other) refer to the private development history; the public repository starts from a single snapshot commit. Exception: `4f741fa`, cited in the Milestone 3 section, is a commit of the public repository.
 
@@ -334,6 +336,56 @@ the app's user schema copied exactly):
   check the length before saving, so the result holds" (meaning the two password handlers of the
   first sample). They named no label of the fresh 10. The owner's label on the disputed fix differs
   from Claude's, so that note cannot have produced agreement there.
+
+## Early testers
+
+Four early testers ran **v0.4.1** on their own projects with the
+[early tester guide](early-tester-guide.md) and reported what they found. This is **not a precision
+measurement**: four self-selected projects, each judged by its own author, not labelled with the
+method in [Labels](#labels). These results are not added to any precision number in this document.
+Testers, projects and code are not named; findings are described by kind only. LogPilot's own
+repository is the exception: it is public, so its file paths are given.
+
+| Tester | Project (kind only) | Findings reported | What the tester said |
+|---|---|---|---|
+| T1 | Express backend | 1 LP001; 1 LP003 | The LP001 is a deliberate cleanup ignore (`catch (_)`). The LP003 is in a test helper file, not in production code. Ran on Windows with an absolute path on another drive; report paths came out wrong. |
+| T2 | Next.js and TypeScript (not Express) | 3 LP001; 21 LP002; 0 LP003 | The 3 LP001 are commented, deliberate ignores of browser-storage errors. The 21 LP002 are about 5 to 6 design decisions, each repeated many times. It was not clear that LP003 had no Express code to check. Paths came out wrong. |
+| T3 | LogPilot's own repository | 2 LP002 outside `test/fixtures/`; everything else inside it | The 2 LP002 are real problems: `src/config.ts:73` and `src/config.ts:80` dropped the original error. Everything in `test/fixtures/` is code written to be reported. |
+| T4 | Full stack: Express-style backend, admin panel, React Native app | 2 LP001; 0 in the backend | The 2 LP001 are commented, deliberate ignores in the mobile code. Whether the backend really has no problems is still being asked (open). v0.4.1's new default skips worked (a `.dist` folder and the mobile app's `.expo` folder were not scanned). Paths came out wrong. |
+
+**What this shows:**
+
+- **LP001: all 6 findings (T1, T2, T4) were deliberate ignores,** by the testers' own judgement.
+  This matches the held-out measurement, where
+  [3 of 25 LP001 findings were real problems (12%)](#current-results-lp001-v2-round-3-held-out).
+  Making LP001 opt-in is being proposed; nothing is decided yet.
+- **LP002 found 2 real problems in LogPilot itself** (T3). In a project with many repeated
+  translations of errors (T2), its findings mostly repeat a few design decisions.
+- **Paths were wrong for three of four testers** (T1, T2, T4) when they scanned from another folder
+  or drive.
+- **Re-checking T3's result at v0.4.1:** besides the 2 LP002, one more finding was outside
+  `test/fixtures/`, a deliberate LP001 ignore in `test/lp003-fix.test.ts` (Windows refuses to create
+  symbolic links without permission, and the test then skips that check).
+
+**Changed in v0.4.2 because of this:**
+
+- **Paths** (T1, T2, T4): every path in the text report, the JSON report and fix-preview diffs is
+  relative to the scanned folder, whichever folder or drive LogPilot is run from. The JSON schema
+  version went from 2 to 3 because `file` and `path` now hold different values.
+- **"No Express handlers found"** (T2): when no scanned file has an Express handler, the summary
+  says once that LP003 and fix previews had nothing to check.
+- **LogPilot scans itself** (T3): both config errors in `src/config.ts` now keep `{ cause }`, the
+  `test/lp003-fix.test.ts` ignore has a `logpilot-ignore` comment with its reason, and CI runs
+  `node dist/cli.js scan . --fail-on low`, with `test/fixtures/**` excluded in `logpilot.config.json`.
+  Result at v0.4.2: 45 files, 0 findings, 1 suppressed.
+- **LP001's suggestion text** (T1): the examples use a neutral `"<what failed>"` instead of
+  `"failed to load config"`. For a catch variable named `_` or `_name`, they use `err` and say to
+  rename it. Only the text changed: LP001 reports exactly the same findings, so it stays at
+  version 2.
+
+**Recorded for later, not built:** LP003 for Next.js API routes (T2); a lower LP003 severity in
+test helper files (T1); for LP003 in error middleware, placing the fix inside the branch that sends
+the 5xx response (T1).
 
 ## Current results: LP003 on held-out Express apps
 

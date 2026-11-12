@@ -11,7 +11,7 @@ import { checkExcludePattern } from "./file-selection.js";
 import { unsupportedNodeVersion } from "./node-version.js";
 import { formatReport, reportWidth } from "./report.js";
 import { formatJson } from "./report-json.js";
-import { RULES, scanPath, SOURCE_EXTENSIONS } from "./scanner.js";
+import { RULES, scanPath, scanRootOf, SOURCE_EXTENSIONS, toDisplayPath } from "./scanner.js";
 import {
   checkLevels,
   DEFAULT_FAIL_ON,
@@ -70,11 +70,6 @@ A scan only reads files. It never modifies them.
 function readVersion(): string {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   return packageJson.version;
-}
-
-/** A path as shown to the user: relative to the current folder, with "/" separators. */
-function displayPath(file: string): string {
-  return path.relative(process.cwd(), file).split(path.sep).join("/");
 }
 
 /** Prints a usage error to stderr and returns the "tool error" exit code. */
@@ -165,6 +160,11 @@ function main(args: string[]): number {
     // A typo such as "--output src/app.js" must never overwrite source code.
     return usageError(`--output "${output}": refusing to write a report into a JavaScript or TypeScript file; use for example report.json`);
   }
+
+  // Every path LogPilot prints is relative to the scanned folder (for a single file: its folder),
+  // whichever folder or drive LogPilot is run from. The config file's path too.
+  const scanRoot = scanRootOf(path.resolve(target));
+  const displayPath = (file: string) => toDisplayPath(file, scanRoot);
 
   // The config file: --config names it, --no-config turns it off, otherwise LogPilot looks for it.
   let configFile: string | undefined;
