@@ -49,6 +49,16 @@ are no wrong answers, and nothing you send is shared with your name.
 4. Fill in the table below: one row per finding, at most 15 rows. If there are more, take every
    second one.
 
+5. Optional: look at the fixes LogPilot proposes for its LP003 findings.
+
+   ```bash
+   node dist/cli.js scan path/to/your/project/backend --fix-preview > logpilot-fixes.txt
+   ```
+
+   Under each LP003 finding there is now a "Proposed fix" with a diff: the lines starting with `+`
+   are what LogPilot would add. **Nothing is changed in your project**: it is only a preview, and
+   you decide whether to copy it. Note in the last column of the table whether the fix looks right.
+
 ## What to send back
 
 Copy this table into a message and fill it in. Use the rule and line from the report; you do not
@@ -58,10 +68,10 @@ need to copy any code.
 Do not use the full path from the report, such as `C:/Users/you/...`: it can show your user name
 and folder names.
 
-| # | Rule (e.g. LP003) | File:line | Useful? (fixed / will fix / not useful / didn't understand) | If not useful: why? |
-|---|---|---|---|---|
-| 1 | | | | |
-| 2 | | | | |
+| # | Rule (e.g. LP003) | File:line | Useful? (fixed / will fix / not useful / didn't understand) | If not useful: why? | Proposed fix (optional): looks right / would change it / wrong |
+|---|---|---|---|---|---|
+| 1 | | | | | |
+| 2 | | | | | |
 
 Then answer, in a sentence or two each:
 
@@ -71,6 +81,8 @@ Then answer, in a sentence or two each:
    out?
 4. How long did all of this take?
 5. Which Node.js version and operating system did you use?
+6. If you looked at the proposed fixes: would you apply any of them? If one was wrong, what was
+   wrong with it (where it put the log line, what it logs, which logger it used)?
 
 **Please do not send your code or the full report** unless you want to. The report contains
 snippets of your code. If you do send it, look through it first and remove anything private, and

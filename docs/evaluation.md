@@ -12,7 +12,10 @@ held-out measurement of LP002; round 1 is kept further down as history. A
 MongoDB driver after Milestone 2 checks the new default file skips; it is not a new precision
 measurement.
 
-**Commit hashes:** the LogPilot commits cited here (`be0126b`, `15f0b46`, `5c9a4a6`, `318499c`, and any other) refer to the private development history; the public repository starts from a single snapshot commit.
+[Milestone 3](#milestone-3-lp003-fix-previews-on-the-tuning-apps) checks LP003's fix previews on the
+tuning apps; it measures the fixes, not the findings, and is not a precision claim.
+
+**Commit hashes:** the LogPilot commits cited here (`be0126b`, `15f0b46`, `5c9a4a6`, `318499c`, and any other) refer to the private development history; the public repository starts from a single snapshot commit. Exception: `4f741fa`, cited in the Milestone 3 section, is a commit of the public repository.
 
 ## Evaluation data and anonymized apps
 
@@ -161,6 +164,160 @@ rounds (see [Labels](#labels)); past labels are unchanged:
 **LogPilot observation:** #7 and #8 are the same pattern but got different levels (low vs medium).
 The `/* eslint-disable no-empty */` line directly above the first `try` counts as an "explaining
 comment". A linter instruction is not an explanation.
+
+## Milestone 3: LP003 fix previews on the tuning apps
+
+**What this measures:** the fixes that `--fix-preview` proposes for LP003 findings, on the seven
+apps LP003 was tuned on (App A, B, D, E, F, G, H; held-out apps were not opened). It says whether the
+fixes are valid, small and sensible. **It is not a precision claim** (that is about the findings,
+measured above), and tuning apps make it optimistic.
+
+**Method, written down before any fix was generated.** The protocol was saved privately (it names
+the apps' folders); its SHA-256 is
+`686759d393182ebca803f7f845ad08b7c00ce322b5cd78fef19b05a3abf0bf78`, recorded at
+2026-11-12T11:21:01Z. In short:
+
+- LogPilot `4f741fa` (public repository, clean working tree), default settings,
+  `scan <app> --fix-preview --format json`, once per app.
+- Every file of every app (except `.git/`) was fingerprinted (path, size, modification time,
+  SHA-256) before the run, after it, and again after the judging. **All three fingerprints are
+  identical: LogPilot changed no file.**
+- "Minimal" means: one inserted line, one statement inserted in an existing line, or one added
+  argument (case C), plus at most the catch variable (` (err)`).
+- A systematic sample of 30 fixes (positions ⌊(i + 0.5) × N ÷ 30⌋ in the fixes sorted by app, file
+  and line) is judged *correct-looking*, *questionable* or *wrong*, with one line of reasoning
+  (placement, logger choice, behaviour unchanged, safe context only), and the judgements are sealed
+  before the project owner sees anything.
+- The project owner labels 10 fixes blind; see
+  [the blind review](#milestone-3-blind-review-of-10-fixes) for how they were drawn.
+- Disclosure: before this run, `--fix-preview` had been run on App A and App H to measure its speed
+  (counts only; no fix was read).
+
+**Results (automatic, all LP003 findings):**
+
+| | Count |
+|---|---|
+| LP003 findings | 112 (App A 77, App F 20, App D 6, App E 6, App G 2, App H 1, App B 0) |
+| Fix available | **107** |
+| No fix: a 4xx answer (case E) | 5 |
+| Fix proposed but refused by LogPilot's own checks (a LogPilot bug) | **0** |
+| Minimal | **107 of 107**: one inserted line (86), one inserted line plus the catch variable (21) |
+| Diff size | +1 line (86); +2 −1, the `catch` line changed to add the variable (21) |
+| Logger used | `console.error` for all 107 (confidence low): none of the apps uses a logger LogPilot recognises |
+| Note "the error (or its message) is still sent to the client" (case B) | 83 |
+| Note "this code still answers 200 OK" (case D) | 2 |
+| Case C (error added to an existing console call) | none occurred |
+
+- **The logger detection is not tested by this data:** no tuning app uses pino, winston, bunyan or
+  an imported project logger in its server code. It is covered only by the test fixtures.
+- **8 of the 107 fixes are in App F's `.server-build/` folder,** compiled copies that the LP003
+  tuning round labelled FP. Their fixes are mechanically fine but would be lost on the next build.
+  No other per-finding labels exist for the tuning apps, so no TP/FP split of the fixes is given.
+
+### Milestone 3: judgements of the sample of 30
+
+Claude's 30 judgements were sealed at 2026-11-12T11:42:15Z in a private file whose SHA-256 is
+`cee4777b0a1ac45021810948f4c27fd9b5aac66b781edb2fbc1a77ed3761026c`. The file still had that hash at
+the comparison.
+
+| Label | Fixes |
+|---|---|
+| correct-looking | 28 |
+| questionable | 2 |
+| wrong | 0 |
+
+- **The 2 questionable fixes are App F's compiled copies** (`.server-build/`). Each fix is right in
+  itself, but a rebuild overwrites it, and the change belongs in the TypeScript source.
+- **The 28 correct-looking fixes** each put one `console.error` line just before the catch's only
+  5xx response, in the file's own style, with the real error variable (or a new `err` for
+  `catch {}`).
+- **A correction to two sealed reasons (the labels do not change).** Two sampled fixes are in
+  handlers that save a password. Their sealed reasons say the password cannot appear in the error
+  because the model's `minlength` message leaves the value out. Running Mongoose 9 later showed
+  that this is not what protects it. The message does leave the value out, but the error *object*
+  keeps the failing value (`errors.password.value`), and `console.error` and pino both print it.
+  What protects the password in both handlers is that its length is checked before saving, so the
+  password field can never fail validation there. This correction was written down privately before
+  the blind-review comparison below.
+
+### Milestone 3: blind review of 10 fixes
+
+**The first blind list was withdrawn before anyone labelled it.** It held 10 of the 30 judged
+fixes, but Claude's progress notes in the working session had named the headline of the sealed
+judgements and two individual ones. The project owner decided to review a fresh 10 instead.
+
+**How the fresh 10 were drawn.**
+
+- A protocol written before the draw (SHA-256
+  `b11122dbfa603fc09f562825f7ccb34c67d45d16240c92280156a350367a77f4`, 2026-11-12T15:09:09Z) took the
+  77 fixes outside the sample of 30 and left out App F's compiled copies (they had been named).
+- It sorted the rest by app, file and line, and took positions ⌊(i + 0.5) × M ÷ 10⌋.
+- Claude judged the 10 and sealed the judgements (SHA-256
+  `6d110b6064bf40c30177d6f6c765711a7882ee6b62a9c966ce2ec97d2476f2ba`, 2026-11-12T15:11:14Z) before
+  writing the list the owner labelled. The hash was checked again before the comparison.
+- 8 of the 10 fixes are in App A, 2 in App F's TypeScript source.
+
+| | Claude (sealed) | Project owner (blind) |
+|---|---|---|
+| correct-looking | 10 | 9 |
+| questionable | 0 | 1 (marked "unsure") |
+| wrong | 0 | 0 |
+
+| Measure | Value |
+|---|---|
+| Agreement on the label | 9 of 10 |
+| Cohen's kappa | not meaningful: Claude gave every fix the same label, so kappa is 0 whatever the owner does (see the explanation in [LP003 second-labeller check](#lp003-second-labeller-check)) |
+
+**The one disagreement: a handler that creates staff accounts (App A).** The fix adds a
+`console.error(..., error)` line before the handler's 500 response.
+
+- **The owner labelled it questionable:** "this handler creates staff accounts and handles
+  passwords. Logging the complete error object could potentially expose sensitive values. A redacted
+  logger would be safer."
+- **Claude had labelled it correct-looking.**
+
+After re-reading the handler and running the libraries it uses (Mongoose 9.12, bcryptjs 3.0, with
+the app's user schema copied exactly):
+
+- **The password cannot reach the error object in this handler.**
+  - A Mongoose validation error keeps only the values of the fields that failed. When another field
+    fails (tested: a missing tenant ID, an unknown role), the password is not in the error. Only a
+    failing *password* field puts it there.
+  - Here the password cannot fail. A password the admin types is checked to be at least 8
+    characters before the account is created. A generated password is 11 characters (2,000,000
+    generated, none shorter); only `Math.random()` returning exactly 0 would make a shorter one.
+  - bcryptjs's errors name only the types of their arguments (tested).
+  - The database only ever receives the bcrypt hash, never the password itself.
+- **The e-mail address can reach it.** The handler checks for an existing e-mail first, but two
+  requests at the same moment could both pass that check. MongoDB's duplicate-key error then names
+  the duplicated e-mail (from MongoDB's documented error format; not run here, as there was no
+  database). The handler already sends that same message to the client.
+- **So under the written definitions, correct-looking is more likely right for this handler.** The
+  owner's concern is still right about the pattern. In a handler that does not check the password
+  before saving, the same fix would log the plaintext password whenever it fails validation
+  (tested: `console.error` and pino both print it; with Mongoose's default `minlength` message, even
+  `error.message` contains it).
+- **Proposal from this review (not built):**
+  - When the `try` block of an LP003 fix sets a password-like field (for example `password` in
+    `User.create({ ... })`, or `user.password = ...`), show the fix with a warning that validation
+    errors keep the failing value. The warning recommends checking the value before saving, or
+    redacting it in the logger.
+  - Not a refusal, unlike axios (whose errors always carry the request's headers). The leak needs the
+    password field itself to fail validation, which handlers often rule out (both password handlers
+    in the sample of 30 did). Refusing would also remove the log for database failures in exactly the
+    flows where they matter most.
+
+**Limits of this check.**
+
+- 10 fixes from two apps, all one shape (`console.error`, one line, before a 5xx response); most
+  are App A's repeated controller pattern.
+- The owner is a beginner and asked that their labels be treated as a second opinion, not the right
+  answer. The disagreement was settled by re-reading the code and running the libraries.
+- During the fresh draw, Claude's progress notes said that it was checking whether password handlers
+  check the password before saving (the topic of the disputed fix), and that "both password handlers
+  check the length before saving, so the result holds" (meaning the two password handlers of the
+  first sample). They named no label of the fresh 10. The owner's label on the disputed fix differs
+  from Claude's, so that note cannot have produced agreement there.
 
 ## Current results: LP003 on held-out Express apps
 

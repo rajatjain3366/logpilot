@@ -1,6 +1,6 @@
 {
   "name": "logpilot",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Diagnostic-readiness auditor for JavaScript/TypeScript projects: finds code that would leave you without evidence when it fails in production.",
   "private": true,
   "license": "MIT",

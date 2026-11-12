@@ -8,7 +8,8 @@ LogPilot is an open-source, local command-line tool that scans JavaScript and Ty
 (Node.js) projects for code that would leave you **without evidence** when something goes
 wrong in production, for example an error that is caught and then silently thrown away.
 
-> **Status: early prototype, v0.3.0.** Three rules exist today: LP001, LP002 and LP003. The CLI is
+> **Status: early prototype, v0.4.0.** Three rules exist today: LP001, LP002 and LP003, and LP003
+> findings can show a proposed fix ([fix previews](#fix-previews), never applied). The CLI is
 > not published to npm yet; see [Quick start](#quick-start) for running it from this repository.
 > Before relying on the results, read [Accuracy](#accuracy).
 
@@ -155,29 +156,38 @@ and counts such files in the summary. Warnings do not change the exit code.
 LogPilot never changes your files.** Review the fix and apply it yourself. With `--format json`, each
 finding carries the fix as exact text edits (see [JSON output](#json-output)).
 
+From `node dist/cli.js scan test/fixtures/fix/loggers/pino-in-file.js --fix-preview` (the file
+creates a pino logger, so the fix uses it; the "Why" and "Fix" lines are left out here):
+
 ```text
-  Proposed fix (preview only, not applied): Log the caught error with console.error just before the
-    error response on line 7.
-    Logger: console.error (confidence low: no logger was found in this file, so the fix uses
-      console.error, which every Node.js program has)
-    --- a/src/app.js
-    +++ b/src/app.js
-    @@ -4,6 +4,7 @@
+  Proposed fix (preview only, not applied): Log the caught error with logger.error just before the
+    error response on line 13.
+    Logger: logger.error (confidence high: this file creates `logger` with pino)
+    --- a/test/fixtures/fix/loggers/pino-in-file.js
+    +++ b/test/fixtures/fix/loggers/pino-in-file.js
+    @@ -10,6 +10,7 @@
        try {
-         res.json(await load(req.params.id));
-       } catch (err) {
-    +    console.error("Request failed:", { method: req.method, route: req.route?.path }, err);
-         res.status(500).json({ message: "Server error" });
+         res.json(await loadOrder(req.params.id));
+       } catch (error) {
+    +    logger.error({ err: error, method: req.method, route: req.route?.path }, "Request failed");
+         res.status(500).json({ message: "Could not load the order" });
        }
      });
   Checked: the fixed code parses, the fix only adds code, it logs nothing but the error, req.method
            and req.route?.path, and after it this finding is gone and no other finding changes.
+
+Scanned 1 file, 1 finding (LP003: 1)
+Fix previews (LP003 only): 1 available, 0 not available.
+No file was changed: apply a fix yourself after reviewing it.
 ```
 
-**What a fix adds:** one log line with the whole error object (its message, stack trace, `code`
-and `cause`), under the catch's own variable name. A `catch {}` gets a variable: `catch (err)`, or
-another name if `err` is already used in the block.
+**What a fix adds:** one log line with the whole error object, under the catch's own variable
+name. With `console.error` and pino, that keeps the error's message, stack trace, `code` and
+`cause`; with winston and bunyan, everything but the cause (see below). A `catch {}` gets a
+variable: `catch (err)`, or another name if `err` is already used in the block.
 
+- **The response is never changed.** If the error's message is sent to the client, or a failure
+  answers 200 OK, the fix keeps that and adds a note: changing it changes what clients receive.
 - **Context: only `req.method` and `req.route?.path`.** `req.route.path` is the route *pattern*,
   such as `/users/:id`, never the values in the URL. A fix never logs the request body, headers,
   cookies, query string, `req.path`, `req.originalUrl` or `req.params`: paths and query strings can
@@ -213,14 +223,24 @@ checking what reached the log:
 - **bunyan** keeps them when the error comes first. The cause is not kept; the fix says so.
 - **pino-http's `req.log` is never used.** By default it adds the whole request to every line,
   including the `Authorization` header and the query string.
-- **The response is never changed.** If the error's message is sent to the client, or a failure
-  answers 200 OK, the fix keeps that and adds a note: changing it changes what clients receive.
 
-**Before a fix is shown, LogPilot checks it in memory:** the fix only adds code; the fixed file
-parses; the added code uses nothing but the error, `req.method`, `req.route?.path` and the logger
-(and only the logger's `error` method);
-and when all rules run again, this finding is gone and nothing else changed (including what
-`logpilot-ignore` comments hide). A fix that fails a check is not shown, and LogPilot warns about it.
+**Before a fix is shown, LogPilot checks it in memory:**
+
+- the fix only adds code;
+- the fixed file parses;
+- the added code uses nothing but the error, `req.method`, `req.route?.path` and the logger's
+  `error` method;
+- when all rules run again, this finding is gone and nothing else changed, including what
+  `logpilot-ignore` comments hide.
+
+A fix that fails a check is not shown, and LogPilot warns about it (a LogPilot bug: please report
+it).
+
+**On the apps LP003 was tuned on** (tuning data, not a quality claim; see
+[docs/evaluation.md](docs/evaluation.md#milestone-3-lp003-fix-previews-on-the-tuning-apps)): 107 of
+112 LP003 findings got a fix, all 107 passed these checks and added only one line (plus a catch
+variable in 21), and the other 5 were 4xx answers. No project there used a logger LogPilot
+recognises, so every fix used `console.error`.
 
 **No fix is proposed** (the report says why) for:
 
@@ -544,7 +564,7 @@ settings (a library, so LP003 finds nothing there):
 ```json
 {
   "schemaVersion": 2,
-  "tool": { "name": "logpilot", "version": "0.3.0" },
+  "tool": { "name": "logpilot", "version": "0.4.0" },
   "rules": [
     { "id": "LP001", "name": "empty-catch", "version": 2 },
     { "id": "LP002", "name": "lost-error-cause", "version": 1 },
@@ -695,17 +715,28 @@ We have not measured how many LogPilot findings these lint rules also report.
   `console.error("Login failed:", err.message)` keeps the message but loses the stack trace and
   properties such as `code`. LP003 does not report it. Weak error context like this is not
   detected by any rule yet (planned as LP006, above).
-- **Logging a whole error can still write secrets, if the error itself holds them.** We measured
-  this for axios: its errors contain the outgoing request's headers (including `Authorization`) and
-  URL, so LP003's fix previews skip `try` blocks that call axios. Other HTTP clients and SDKs (got,
-  node-fetch, cloud SDKs) were not measured and may also put secrets in their errors. Check that
-  your logger redacts them.
+- **No fix preview** is proposed for LP001 or LP002 findings, nor for these LP003 findings: a
+  catch that only answers 4xx (case E), `catch ({ message })`, error middleware written as an arrow
+  function without braces, a `try` block that calls axios, files with syntax errors, and code where
+  a local variable shares a name with the request, the error, the logger or `console`. The report
+  says why each time.
+- **Logging a whole error can still write secrets or personal data, if the error itself holds
+  them.** We measured this for axios: its errors contain the outgoing request's headers (including
+  `Authorization`) and URL, so LP003's fix previews skip `try` blocks that call axios. Other HTTP
+  clients and SDKs (got, node-fetch, cloud SDKs) were not measured and may also put secrets in their
+  errors. Database errors can contain the values that failed, too (for example, MongoDB's
+  duplicate-key error names the duplicated value). Check that your logger redacts them.
+- **A fix preview's placement is simple.** With several 5xx responses in a catch, or a 5xx in an
+  `if` or `else` without braces, the log line goes at the start of the catch block, so it also logs
+  the failures answered with 4xx; the fix says so. Fixes are checked by parsing and by running
+  LogPilot's rules again, not by type-checking TypeScript or running your tests.
 - **Fix previews recognise only some loggers.** pino, winston and bunyan created at the top level of
   the file, or in a relative module the file imports (one step: a module that re-exports a logger
   from another file is not followed). Other loggers are used only when the file already logs a
   caught error with them; otherwise the fix uses `console.error` and says why.
 - **A fix's log line keeps the error's cause only with console and pino.** With winston and bunyan,
-  the fix notes that `error.cause` is not logged.
+  the fix notes that `error.cause` is not logged, and with winston a custom format that prints only
+  the message also drops the stack trace (the fix tells you to check the format).
 - **LP003's case E (4xx) has found no real problem so far,** only debatable cases such as
   authentication checks that answer 401. Its *low* severity was set after that measurement and has
   not been measured itself.
