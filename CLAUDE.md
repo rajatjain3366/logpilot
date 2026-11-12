@@ -6,11 +6,6 @@ Guiding question: "If this code fails in production, does it preserve enough saf
 Long-term workflow: Scan → Detect → Explain → Propose Fix → Get Approval → Apply Fix → Validate.
 Initial command: `npx logpilot scan .`
 
-## About me
-Third-year B.Tech CSE student. I know basic C/C++, Python, JavaScript, React, MERN.
-I am a BEGINNER in DevOps, cloud, AST-based analysis, and building developer tools.
-Teach me as you build: simple English, explain each new concept the first time it appears.
-
 ## Product principles (never violate)
 1. Local CLI scanner first. No uploads, no account, no network needed to scan.
 2. A normal scan NEVER modifies source files.
@@ -36,9 +31,9 @@ evidence (code snippet), explanation, suggestion.
 - Duplicate error logging
 
 ## Roadmap
-1. CLI scanner + a few tested rules  ← CURRENT
-2. Structured findings, JSON output, config, suppressions
-3. Suggested fixes + diff previews
+1. CLI scanner + a few tested rules  ✓ done
+2. Structured findings, JSON output, config, suppressions  ✓ done
+3. Suggested fixes + diff previews  ← CURRENT
 4. Approval-based patch application + validation
 5. GitHub Actions / PR integration
 6. Optional AI explanations and fix proposals
@@ -50,6 +45,7 @@ Node.js (LTS), TypeScript, TypeScript Compiler API (or justified alternative), n
 Use stable, compatible dependency versions. Explain WHY before adding any dependency.
 
 ## How to work with me
+- Use simple English, and explain each new concept the first time it appears.
 - One milestone at a time. Do not build ahead.
 - Before substantial code: propose, explain, and WAIT for my approval.
 - Explain what each file and major function does.

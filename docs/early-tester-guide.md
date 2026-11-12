@@ -1,22 +1,24 @@
-# Try LogPilot on your MERN project (about 20 minutes)
+# Early tester guide: try LogPilot on your Express project (about 20 minutes)
 
-Thank you for helping. LogPilot is a student project: a tool that reads the code of a Node.js or
-Express project and points out places where, if something fails in production, you would have
-**no clue why**. For example, a `catch` that answers "500" but never logs the error.
+Thank you for helping. LogPilot is an early-stage open-source tool that reads the code of a
+Node.js or Express project and points out places where, if something fails in production, you
+would have **no clue why**. For example, a `catch` that answers "500" but never logs the error.
 
-I want to know whether its findings are **useful to you**, not whether your code is good. There
-are no wrong answers, and nothing you send is graded or shared with names.
+We want to know whether its findings are **useful to you**, not whether your code is good. There
+are no wrong answers, and nothing you send is shared with your name.
 
 ## Before you start
 
 - **Your code stays on your computer.** LogPilot only reads files. It never changes them, never
   uploads anything, and needs no account or internet connection to scan.
-- You need **Node.js 22.20 or newer** (`node --version`) and **git**.
+- You need **Node.js 22.20 or newer** (on Node 24: 24.8 or newer; check with `node --version`)
+  and **git**.
 - Use a project with an **Express backend** (a MERN project is perfect).
 
 ## Steps
 
-1. Get LogPilot. Use the commit given to you with this sheet, so everyone tests the same version.
+1. Get LogPilot. If you were given a commit to test, check it out, so every tester uses the same
+   version; otherwise skip the `git checkout` line.
 
    ```bash
    git clone https://github.com/rajatjain3366/logpilot.git
@@ -71,8 +73,9 @@ Then answer, in a sentence or two each:
 5. Which Node.js version and operating system did you use?
 
 **Please do not send your code or the full report** unless you want to. The report contains
-snippets of your code. If you do send it, look through it first and remove anything private.
+snippets of your code. If you do send it, look through it first and remove anything private, and
+never include passwords, tokens or other secrets.
 
-Send your answers to the person who gave you this sheet. Results will only be reported as
+Send your answers to the person who invited you to test LogPilot. Results will only be reported as
 totals ("8 of 20 findings were useful"), never with your name or your code, unless you say that
 is fine.
