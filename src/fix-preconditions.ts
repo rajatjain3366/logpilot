@@ -11,7 +11,7 @@
 //     core.autocrlf=true, a file with LF or mixed line endings is "clean" for git but would come
 //     back with CRLF (measured in Milestone 4's spike), so an undo would not be exact.
 
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { changedFiles, checkoutBytes, GitError, type IndexEntry, indexEntries, repositoryRoot } from "./git.js";
 
@@ -91,7 +91,10 @@ export function checkFile(absolutePath: string, scanRoot: string, repository: Re
   }
   if (!Buffer.from(text, "utf8").equals(bytes)) return no("its bytes do not survive decoding and encoding as UTF-8 unchanged");
 
-  const fromRoot = path.relative(repository.root, absolutePath);
+  // Compare REAL paths: the repository root is a real path (see repositoryRoot), and the scanned
+  // folder may be spelled differently for the same folder (8.3 short names such as RUNNER~1, a
+  // `subst` drive). Links below the scanned folder were refused above, so this is the same file.
+  const fromRoot = path.relative(repository.root, realpathSync.native(absolutePath));
   if (fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) return no("it is outside the git repository");
   const repositoryPath = fromRoot.split(path.sep).join("/");
   const entry = repository.index.get(repositoryPath);

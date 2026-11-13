@@ -2,11 +2,11 @@
 // for each one it may not. Every test works in a throw-away git repository (test/temp-repo.ts).
 
 import { execFileSync } from "node:child_process";
-import { chmodSync, linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkFile, openRepository, type Repository } from "../src/fix-preconditions.js";
-import { git, withFolder, withRepo } from "./temp-repo.js";
+import { git, shortPath, withFolder, withRepo } from "./temp-repo.js";
 
 /** Opens the repository (it must be one) and checks `relative` (with "/") inside it. */
 function check(repo: string, relative: string, scanRoot = repo) {
@@ -42,7 +42,8 @@ describe("openRepository", () => {
   it("finds the repository from a scanned subfolder", () => {
     withRepo({ "src/app.js": "a\n" }, (repo) => {
       const opened = openRepository(path.join(repo, "src"));
-      expect(opened.ok && (opened.repository as Repository).root).toBe(repo);
+      // CHANGED ON PURPOSE (CI on windows-latest): the root is the REAL path of the repository folder.
+      expect(opened.ok && (opened.repository as Repository).root).toBe(realpathSync.native(repo));
     });
   });
 });
@@ -65,6 +66,37 @@ describe("checkFile: files that may be changed", () => {
   it("accepts LF, CRLF and mixed line endings when git converts nothing (core.autocrlf=false)", () => {
     withRepo({ "lf.js": "a;\nb;\n", "crlf.js": "a;\r\nb;\r\n", "mixed.js": "a;\r\nb;\n" }, (repo) => {
       expect(["lf.js", "crlf.js", "mixed.js"].map((f) => verdict(repo, f))).toEqual(["ok", "ok", "ok"]);
+    });
+  });
+
+  // CI found this: GitHub's Windows runners give the temp folder as C:\Users\RUNNER~1\... (8.3 short
+  // names), while git reports C:/Users/runneradmin/... for the same folder. Every file was then
+  // "outside the git repository".
+  it.runIf(process.platform === "win32")("accepts files when the scanned folder is spelled with 8.3 short names (Windows)", () => {
+    withRepo({ "src/my routes/app.js": "a\n" }, (repo) => {
+      const short = shortPath(repo);
+      // Precondition: the two spellings really differ here (8.3 names exist), or this test proves nothing.
+      expect(short.toLowerCase(), "precondition: 8.3 short names exist for the temp folder").not.toBe(repo.toLowerCase());
+
+      const opened = openRepository(short);
+      if (!opened.ok) throw new Error(opened.reason);
+      const result = checkFile(path.join(short, "src", "my routes", "app.js"), short, opened.repository);
+      expect(result.ok ? "ok" : result.reason).toBe("ok");
+      expect(result.ok && result.target.repositoryPath).toBe("src/my routes/app.js");
+    });
+  });
+
+  // The scanned folder itself may be a junction to the repository (only links BELOW it are refused).
+  it.runIf(process.platform === "win32")("accepts files when the repository is scanned through a junction to it (Windows)", () => {
+    withRepo({ "src/app.js": "a\n" }, (repo) => {
+      const junction = path.join(repo, "..", "repo through a junction");
+      execFileSync("cmd.exe", ["/c", "mklink", "/J", junction, repo], { stdio: "ignore" });
+
+      const opened = openRepository(junction);
+      if (!opened.ok) throw new Error(opened.reason);
+      const result = checkFile(path.join(junction, "src", "app.js"), junction, opened.repository);
+      expect(result.ok ? "ok" : result.reason).toBe("ok");
+      expect(result.ok && result.target.repositoryPath).toBe("src/app.js");
     });
   });
 
@@ -121,8 +153,12 @@ describe("checkFile: files that are refused, with the reason", () => {
     withRepo({ "real/app.js": "a\n" }, (repo) => {
       try {
         symlinkSync(path.join(repo, "real", "app.js"), path.join(repo, "link.js"));
-      } catch {
-        return; // Windows allows symbolic links only in developer mode or as administrator; the junction test covers Windows
+      } catch (error) {
+        // Windows allows symbolic links only in developer mode or as administrator (the junction
+        // test covers Windows). Linux and macOS always allow them: there, failing to create one fails
+        // the test, so a green run on Linux CI proves that the refusal was really checked.
+        if (process.platform !== "win32") throw error;
+        return;
       }
       expect(verdict(repo, "link.js")).toBe("it is reached through a symbolic link or junction");
     });

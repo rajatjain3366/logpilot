@@ -58,6 +58,18 @@ export function withRepo(
   }
 }
 
+/**
+ * Windows only: the 8.3 short spelling of an existing path (C:\Users\RUNNER~1\...), as GitHub's
+ * Windows runners give for the temp folder. Same folder, different spelling.
+ */
+export function shortPath(longPath: string): string {
+  return spawnSync("cmd.exe", [`/d /s /c "for %I in ("${longPath}") do @echo %~sI"`], {
+    encoding: "utf8",
+    windowsVerbatimArguments: true, // cmd.exe needs its quotes exactly as written
+    windowsHide: true,
+  }).stdout.trim();
+}
+
 /** A temp folder that is NOT a git repository; deleted after `body`. */
 export function withFolder(body: (dir: string) => void): void {
   const dir = mkdtempSync(path.join(os.tmpdir(), "logpilot-fix-test-"));

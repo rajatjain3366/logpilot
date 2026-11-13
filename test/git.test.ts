@@ -2,16 +2,28 @@
 // `git checkout` would give back. Every test works in a throw-away repository (test/temp-repo.ts).
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { changedFiles, checkoutBytes, findProgram, GitError, indexEntries, repositoryRoot } from "../src/git.js";
-import { git, withFolder, withRepo } from "./temp-repo.js";
+import { git, shortPath, withFolder, withRepo } from "./temp-repo.js";
 
 describe("repositoryRoot", () => {
   it("finds the repository root from a subfolder, also with spaces in the path", () => {
     withRepo({ "src/my routes/a.js": "a\n" }, (repo) => {
-      expect(repositoryRoot(path.join(repo, "src", "my routes"))).toBe(repo);
+      // CHANGED ON PURPOSE (CI on windows-latest): the root is the REAL path of the repository folder.
+      expect(repositoryRoot(path.join(repo, "src", "my routes"))).toBe(realpathSync.native(repo));
+    });
+  });
+
+  // CI on windows-latest: the temp folder is C:\Users\RUNNER~1\..., git says C:/Users/runneradmin/...
+  it.runIf(process.platform === "win32")("gives one spelling for a folder reached by its 8.3 short name (Windows)", () => {
+    withRepo({ "a.js": "a\n" }, (repo) => {
+      const short = shortPath(repo);
+      expect(short.toLowerCase(), "precondition: 8.3 short names exist for the temp folder").not.toBe(repo.toLowerCase());
+
+      expect(repositoryRoot(short)).toBe(realpathSync.native(repo));
+      expect(repositoryRoot(short)).toBe(repositoryRoot(repo));
     });
   });
 
@@ -46,7 +58,7 @@ describe("repositoryRoot", () => {
         const plain = spawnSync("git", ["--version"], { encoding: "utf8", windowsHide: true });
         expect(plain.stdout.startsWith("git version"), "precondition: plain 'git' should find the planted git.exe").toBe(false);
 
-        expect(repositoryRoot(repo)).toBe(repo); // LogPilot still runs the real git
+        expect(repositoryRoot(repo)).toBe(realpathSync.native(repo)); // LogPilot still runs the real git (CHANGED ON PURPOSE: real path)
       } finally {
         process.chdir(before);
         if (saved !== undefined) process.env.NoDefaultCurrentDirectoryInExePath = saved;
@@ -70,7 +82,7 @@ describe("repositoryRoot", () => {
       process.chdir(planted);
       try {
         expect(findProgram("git")).not.toBe(path.join(planted, fake));
-        expect(repositoryRoot(repo)).toBe(repo);
+        expect(repositoryRoot(repo)).toBe(realpathSync.native(repo)); // CHANGED ON PURPOSE: real path
       } finally {
         process.chdir(before.cwd);
         process.env.PATH = before.PATH;

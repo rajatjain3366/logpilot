@@ -16,7 +16,7 @@
 // Nothing here writes to the working tree or the repository.
 
 import { spawnSync } from "node:child_process";
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 /** What `git` printed and how it ended. */
@@ -81,6 +81,10 @@ function gitOutput(cwd: string, args: readonly string[], program?: string): Buff
  * The root folder of the git repository that contains `folder`, or undefined when `folder` is not
  * in a git repository. Throws GitError when git is missing or refuses the repository (for example
  * git's "dubious ownership" check).
+ *
+ * The root is returned as its REAL path (realpathSync.native): one spelling for one folder. Windows
+ * can name a folder in several ways (C:\Users\RUNNER~1 is the 8.3 short name of C:\Users\runneradmin
+ * on GitHub's Windows runners); git always reports long names, so compare it only with real paths.
  */
 export function repositoryRoot(folder: string, program?: string): string | undefined {
   const result = runGit(folder, ["rev-parse", "--show-toplevel"], program);
@@ -88,7 +92,7 @@ export function repositoryRoot(folder: string, program?: string): string | undef
     if (/not a git repository/i.test(result.stderr)) return undefined;
     throw new GitError(`git does not accept this folder as a repository: ${failureDetails(result)}`);
   }
-  return path.resolve(result.stdout.toString("utf8").trim());
+  return realpathSync.native(path.resolve(result.stdout.toString("utf8").trim()));
 }
 
 /** A file in git's index (its staging area). */
