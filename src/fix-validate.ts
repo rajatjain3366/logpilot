@@ -12,19 +12,10 @@
 import ts from "typescript";
 import { checkSourceFile, findSyntaxErrors, parseSource } from "./analyze.js";
 import { applyEdits, isInsertOnly, sortedEdits } from "./fix-edits.js";
-import type { Finding, TextEdit } from "./types.js";
+import type { Finding, FixSafety, TextEdit } from "./types.js";
 
-/** The names a fix's inserted code may use (decided by the fixer, checked here). */
-export interface FixSafety {
-  /** The caught error's variable, e.g. "err". */
-  errorName: string;
-  /** The request parameter, e.g. "req", or undefined when the fix uses no request context. */
-  requestName?: string;
-  /** The logger the fix calls, e.g. "console" or "logger". */
-  loggerName: string;
-  /** Another key the error may be logged under, copied from the project's own log calls (e.g. "error"). */
-  errorKey?: string;
-}
+/** The names a fix's inserted code may use (defined in types.ts; re-exported for the fixer). */
+export type { FixSafety };
 
 /** The only request properties a fix may read: req.method and req.route?.path (the route pattern). */
 const REQUEST_PROPERTIES = new Set(["method", "route"]);
@@ -54,6 +45,23 @@ export function validateFix(
   edits: TextEdit[],
   safety: FixSafety,
 ): string | undefined {
+  return validateFixSet(fileName, displayPath, text, [{ finding, edits, safety }]);
+}
+
+/** One fix of a set: the finding it fixes, its edits, and the names its inserted code may use. */
+export interface FixToCheck {
+  finding: Finding;
+  edits: TextEdit[];
+  safety: FixSafety;
+}
+
+/**
+ * Checks several fixes for one file TOGETHER (`logpilot fix` writes all the fixes accepted for a
+ * file at once): the same checks as validateFix, on the text with every fix applied. Every fixed
+ * finding must be gone, and nothing else may change. Returns undefined, or the reason.
+ */
+export function validateFixSet(fileName: string, displayPath: string, text: string, fixes: FixToCheck[]): string | undefined {
+  const edits = fixes.flatMap((fix) => fix.edits);
   if (!isInsertOnly(edits)) return "the fix would remove or change existing code (LogPilot's fixes only insert text)";
   let patched: string;
   try {
@@ -70,22 +78,25 @@ export function validateFix(
     return `the fixed code would not parse (${ts.flattenDiagnosticMessageText(errors[0].messageText, " ")})`;
   }
 
-  const unsafe = unsafeCode(fixed, insertedRanges(edits), safety);
-  if (unsafe !== undefined) return unsafe;
+  // Each fix's inserted code is checked against that fix's own safe names.
+  const ranges = insertedRanges(edits);
+  for (const fix of fixes) {
+    const unsafe = unsafeCode(fixed, fix.edits.map((edit) => ranges.get(edit) as ts.TextRange), fix.safety);
+    if (unsafe !== undefined) return unsafe;
+  }
 
-  return changedResults(original, fixed, displayPath, finding, edits);
+  return changedResults(original, fixed, displayPath, fixes.map((fix) => fix.finding), edits);
 }
 
-/** Where the inserted texts are in the FIXED text. */
-function insertedRanges(edits: TextEdit[]): ts.TextRange[] {
+/** Where each edit's inserted text is in the FIXED text (all edits applied). */
+function insertedRanges(edits: TextEdit[]): Map<TextEdit, ts.TextRange> {
   let shift = 0;
-  return [...edits]
-    .sort((a, b) => a.start - b.start)
-    .map((edit) => {
-      const range = { pos: edit.start + shift, end: edit.start + shift + edit.newText.length };
-      shift += edit.newText.length - (edit.end - edit.start);
-      return range;
-    });
+  const ranges = new Map<TextEdit, ts.TextRange>();
+  for (const edit of [...edits].sort((a, b) => a.start - b.start)) {
+    ranges.set(edit, { pos: edit.start + shift, end: edit.start + shift + edit.newText.length });
+    shift += edit.newText.length - (edit.end - edit.start);
+  }
+  return ranges;
 }
 
 /** Why the inserted code is unsafe, or undefined. */
@@ -147,14 +158,14 @@ function stripStrings(code: string): string {
 }
 
 /**
- * Compares every rule's results (and the suppressions) before and after the fix. Returns undefined
- * when the only difference is that `finding` is gone, or a description of what else changed.
+ * Compares every rule's results (and the suppressions) before and after the fixes. Returns
+ * undefined when the only difference is that the fixed `findings` are gone, or what else changed.
  */
 function changedResults(
   original: ts.SourceFile,
   fixed: ts.SourceFile,
   displayPath: string,
-  finding: Finding,
+  findings: Finding[],
   edits: TextEdit[],
 ): string | undefined {
   const sorted = sortedEdits(original.text, edits);
@@ -170,11 +181,13 @@ function changedResults(
 
   const before = checkSourceFile(original, displayPath);
   const after = checkSourceFile(fixed, displayPath);
-  const target = movedKey(finding);
-  const expected = before.kept.filter((f) => !(f.ruleId === finding.ruleId && f.line === finding.line && f.column === finding.column)).map(movedKey);
+  const isFixed = (f: Finding) => findings.some((g) => g.ruleId === f.ruleId && g.line === f.line && g.column === f.column);
+  const expected = before.kept.filter((f) => !isFixed(f)).map(movedKey);
   const actual = after.kept.map(key);
 
-  if (actual.includes(target)) return `${finding.ruleId} still reports this code after the fix`;
+  for (const finding of findings) {
+    if (actual.includes(movedKey(finding))) return `${finding.ruleId} still reports this code after the fix`;
+  }
   const extra = difference(actual, expected);
   if (extra.length > 0) return `the fix would make LogPilot report something new: ${extra[0]}`;
   const missing = difference(expected, actual);

@@ -975,3 +975,59 @@ describe("CLI: repeated patterns (v0.4.3)", () => {
     });
   });
 });
+
+// Milestone 4: `logpilot fix`. The interactive part needs a real terminal (see test/fix-command.test.ts
+// and test/prompt.test.ts for the logic); here: everything that happens before any question.
+describe("CLI: fix (Milestone 4)", () => {
+  const HANDLER_FILE = [
+    'const express = require("express");',
+    "const app = express();",
+    'app.get("/users/:id", async (req, res) => {',
+    "  try {",
+    "    res.json(await load(req.params.id));",
+    "  } catch (err) {",
+    '    res.status(500).json({ message: "Server error" });',
+    "  }",
+    "});",
+    "",
+  ].join("\n");
+
+  it("refuses to run without a terminal (input piped), with exit code 2, and changes nothing", () => {
+    withProject({ "src/app.js": HANDLER_FILE }, (dir) => {
+      const before = fingerprintFolder(dir);
+      const result = spawnSync(process.execPath, [cliPath, "fix", "."], { cwd: dir, input: "y\ny\ny\n", encoding: "utf8" });
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "Error: logpilot fix asks you before every change, so it must run directly in a terminal window, without |, < or > around it. Nothing was changed.\n",
+      );
+      expect(fingerprintFolder(dir)).toEqual(before);
+    });
+  });
+
+  it("refuses the options that only scan has, and more than one path", () => {
+    for (const option of ["--format=json", "--fix-preview", "--min-severity=high", "--fail-on=low", "--show-skipped", "--verbose"]) {
+      const { exitCode, stderr } = runCli(["fix", ".", option]);
+      expect([option, exitCode]).toEqual([option, 2]);
+      expect(stderr).toContain(`--${option.replace(/^--/, "").split("=")[0]} is an option of "scan", not of "fix"`);
+    }
+    expect(runCli(["fix", "a", "b"]).stderr).toContain('"fix" takes one path, but got 2: a b');
+  });
+
+  it("scan never accepts an option that would apply fixes", () => {
+    for (const option of ["--yes", "--apply", "--fix", "--write"]) {
+      const { exitCode, stderr } = runCli(["scan", ".", option]);
+      expect([option, exitCode]).toEqual([option, 2]);
+      expect(stderr).toMatch(/^Error: Unknown option/);
+    }
+  });
+
+  it("documents fix, its answers, its exit codes and the git requirement in --help", () => {
+    const { stdout } = runCli(["--help"]);
+    expect(stdout).toContain("logpilot fix [path] [options]");
+    expect(stdout).toContain("y = yes, n = no, s = skip the rest of the file, q = quit");
+    expect(stdout).toContain("130  stopped by Ctrl+C");
+    expect(stdout).toContain("every change can be undone with git");
+  });
+});

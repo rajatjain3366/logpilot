@@ -33,11 +33,14 @@ the fix is released and the report can be made public, with credit to you if you
 
 ## What counts as a security problem
 
-LogPilot promises to only **read** the code it scans, locally. Examples of problems we want to
-hear about privately:
+`logpilot scan` promises to only **read** the code it scans, locally. `logpilot fix` (since v0.5.0)
+promises to change a file only after you answered `y` for it, only files that git can restore
+exactly, and nothing else. Examples of problems we want to hear about privately:
 
 - a scan that creates, changes or deletes a file (other than the `--output` report file you asked
   for), or reads files outside the path you gave it;
+- `logpilot fix` changing anything you did not approve, changing a file git could not restore,
+  or writing outside the folder you gave it;
 - a scan that sends anything over the network;
 - scanned code being executed (LogPilot only parses code; it never runs it);
 - a crafted file that makes LogPilot hang, crash in an unsafe way, or write its report somewhere
@@ -56,7 +59,7 @@ Node.js does the same. A project that contains a file named `git.exe` at its top
 run that file instead of git. LogPilot therefore finds git itself, only in the **absolute** folders
 listed in `PATH`, and runs it by its full path. Relative `PATH` entries such as `.` are skipped as
 well, which also protects Linux and macOS, where an empty or relative `PATH` entry means the
-current folder. Only the upcoming `logpilot fix` runs git; `scan` runs no programs at all.
+current folder. Only `logpilot fix` runs git; `scan` runs no programs at all.
 
 **How it was found:** during Milestone 4, before any release. A test planted a fake `git.exe` in
 the current folder and passed in the development environment, which happened to set

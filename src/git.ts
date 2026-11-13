@@ -95,6 +95,12 @@ export function repositoryRoot(folder: string, program?: string): string | undef
   return realpathSync.native(path.resolve(result.stdout.toString("utf8").trim()));
 }
 
+/** The commit the repository is on (`git rev-parse HEAD`), or undefined before the first commit. */
+export function headCommit(root: string, program?: string): string | undefined {
+  const result = runGit(root, ["rev-parse", "--verify", "--quiet", "HEAD"], program);
+  return result.status === 0 ? result.stdout.toString("utf8").trim() : undefined;
+}
+
 /** A file in git's index (its staging area). */
 export interface IndexEntry {
   /** "100644" (a normal file), "100755" (executable), "120000" (a symbolic link), "160000" (a submodule). */

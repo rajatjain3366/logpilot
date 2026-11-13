@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { checkSourceFile, parseSource } from "../src/analyze.js";
-import { validateFix, type FixSafety } from "../src/fix-validate.js";
+import { validateFix, validateFixSet, type FixSafety } from "../src/fix-validate.js";
 import type { Finding, TextEdit } from "../src/types.js";
 
 const HANDLER = [
@@ -136,5 +136,72 @@ describe("validateFix: the inserted code may never log secrets or personal data"
 
   it("allows forbidden words inside the log message string", () => {
     expect(refused('console.error("Request failed (body not logged):", err);')).toBeUndefined();
+  });
+});
+
+// Milestone 4: `logpilot fix` writes all fixes accepted for one file at once, so they are checked together.
+describe("validateFixSet: several fixes for one file, checked together", () => {
+  const TWO = [
+    'const express = require("express");',
+    "const router = express.Router();",
+    'router.get("/users/:id", async (req, res) => {',
+    "  try {",
+    "    res.json(await load(req.params.id));",
+    "  } catch (err) {",
+    '    res.status(500).json({ message: "Server error" });',
+    "  }",
+    "});",
+    'router.post("/orders", async (req, res) => {',
+    "  try {",
+    "    res.json(await save());",
+    "  } catch (error) {",
+    '    res.status(500).json({ message: "Could not save" });',
+    "  }",
+    "});",
+    "",
+  ].join("\n");
+  const findings = () => checkSourceFile(parseSource("app.js", TWO), "app.js").kept.filter((f) => f.ruleId === "LP003");
+  /** An edit that inserts `line` before the n-th (0-based) line that contains `marker`. */
+  function insertBefore(marker: string, n: number, line: string): TextEdit {
+    let at = -1;
+    for (let i = 0; i <= n; i++) at = TWO.indexOf(marker, at + 1);
+    const lineStart = TWO.lastIndexOf("\n", at) + 1;
+    return { start: lineStart, end: lineStart, newText: `    ${line}\n` };
+  }
+  const fixErr = () => ({
+    finding: findings()[0],
+    edits: [insertBefore("res.status(500)", 0, 'console.error("Request failed:", { method: req.method, route: req.route?.path }, err);')],
+    safety: { errorName: "err", requestName: "req", loggerName: "console" },
+  });
+  const fixError = (line = 'console.error("Request failed:", { method: req.method, route: req.route?.path }, error);') => ({
+    finding: findings()[1],
+    edits: [insertBefore("res.status(500)", 1, line)],
+    safety: { errorName: "error", requestName: "req", loggerName: "console" },
+  });
+
+  it("accepts two fixes that are fine together, each with its own error name", () => {
+    expect(findings()).toHaveLength(2);
+    expect(validateFixSet("app.js", "app.js", TWO, [fixErr(), fixError()])).toBeUndefined();
+  });
+
+  it("checks each fix's inserted code against that fix's own safe names", () => {
+    // `err` is safe in the first fix, but in the second fix's catch the error is called `error`.
+    const wrongName = fixError('console.error("Request failed:", err);');
+    expect(validateFixSet("app.js", "app.js", TWO, [fixErr(), wrongName])).toBe('the fix\'s code would use "err"');
+  });
+
+  it("refuses the whole set when one fix logs something unsafe", () => {
+    const unsafe = fixError("console.error(req.body, error);");
+    expect(validateFixSet("app.js", "app.js", TWO, [fixErr(), unsafe])).toBe('the fix\'s code would use "body", which LogPilot never logs');
+  });
+
+  it("refuses the set when a finding it claims to fix is still reported", () => {
+    const noEdit = { ...fixError(), edits: [] };
+    expect(validateFixSet("app.js", "app.js", TWO, [fixErr(), noEdit])).toBe("LP003 still reports this code after the fix");
+  });
+
+  it("refuses overlapping edits", () => {
+    const same = fixErr();
+    expect(validateFixSet("app.js", "app.js", TWO, [same, { ...fixError(), edits: same.edits.map((e) => ({ ...e })) }])).toMatch(/^the fix's edits are invalid: edits .* overlap$/);
   });
 });

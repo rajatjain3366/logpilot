@@ -67,8 +67,10 @@ src/
   fix-edits.ts                     applies text edits to a string in memory; unified diffs
   fix-validate.ts                  checks a proposed fix before it is shown (parses, safe names, rules re-run)
   git.ts                           runs git by its full path (never from the current folder), with fixed arguments and no shell: repository root, tracked and changed files, checkout bytes
-  fix-preconditions.ts             logpilot fix (in progress): which files may be changed, and why not
-  fix-write.ts                     logpilot fix (in progress): the ONLY module that writes source files (atomic replace, restore)
+  fix-preconditions.ts             logpilot fix: which files may be changed, and why not
+  fix-write.ts                     logpilot fix: the ONLY module that writes source files (atomic replace, restore)
+  fix-command.ts                   logpilot fix: the run (ask, one write per file, messages built from what happened, JSON record)
+  prompt.ts                        logpilot fix: reads answers in a terminal (raw mode; Ctrl+C and keys typed during a write)
   severity.ts                      severity levels, --min-severity and --fail-on checks
   report.ts                        formats findings as readable text
   report-json.ts                   the JSON report (--format json, schema version 3)
@@ -102,6 +104,8 @@ test/
   git.test.ts                      git.ts, in throw-away repositories
   fix-preconditions.test.ts        every refusal reason of fix-preconditions.ts, and the files that are accepted
   fix-write.test.ts                atomic replace, lock retries (a real lock on Windows), restore, leftover temp files
+  fix-command.test.ts              logpilot fix end to end in temp repositories, with a fake user (answers, q, Ctrl+C)
+  prompt.test.ts                   answers typed in a simulated raw-mode terminal
   temp-repo.ts                     test helper (not a test): throw-away git repositories in the system temp folder
   fixtures/positive/               code that MUST be reported
   fixtures/edge/                   tricky code: reported, often with lower severity or confidence

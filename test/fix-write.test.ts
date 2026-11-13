@@ -199,15 +199,32 @@ describe("replaceFile: checking the written file, and restoring the original", (
     });
   });
 
-  it("writes the original back when the file on disk is not what was written (another program changed it)", () => {
-    withFile((file) => {
-      const outcome = replaceFile(file, ORIGINAL, REPLACEMENT, { hooks: { afterRename: (f) => writeFileSync(f, "changed by someone else\n") } });
+  // CHANGED ON PURPOSE (Milestone 4, Checkpoint 3): this used to write the original back. When the
+  // file on disk is not what LogPilot wrote, another program may have changed it: writing the
+  // original back would destroy that change. Now nothing is written back; a person decides.
+  it("does NOT write the original back when the file on disk is not what was written (another program changed it)", () => {
+    withFile((file, dir) => {
+      let checked = false;
+      const outcome = replaceFile(file, ORIGINAL, REPLACEMENT, {
+        check: () => ((checked = true), undefined),
+        hooks: { afterRename: (f) => writeFileSync(f, "changed by someone else\n") },
+      });
 
       expect(outcome).toEqual({
-        status: "restored",
-        reason: "the file on disk does not have the bytes LogPilot wrote (did another program change it?)",
+        status: "changed-after-write",
+        reason: "the file on disk does not have the bytes LogPilot wrote: another program may have changed it",
       });
-      expect(readFileSync(file).equals(ORIGINAL)).toBe(true);
+      expect(readFileSync(file, "utf8")).toBe("changed by someone else\n"); // the other change is kept
+      expect(checked).toBe(false); // the rules were not run on someone else's content
+      expect(readdirSync(dir).sort()).toEqual(["app.js", "other.js"]);
+    });
+  });
+
+  it("does NOT write the original back when the file cannot be read back to check it", () => {
+    withFile((file) => {
+      const outcome = replaceFile(file, ORIGINAL, REPLACEMENT, { hooks: { afterRename: (f) => rmSync(f) } });
+
+      expect(outcome).toEqual({ status: "changed-after-write", reason: "it could not be read back to check it (ENOENT)" });
     });
   });
 

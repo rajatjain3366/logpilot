@@ -97,6 +97,7 @@ export function attachFixPreviews(
       notes: proposal.notes,
       edits: proposal.edits,
       diff: unifiedDiff(displayPath, sourceFile.text, proposal.edits),
+      safety: proposal.safety, // internal: for checking several fixes of a file together (logpilot fix)
     };
   }
   return warnings;

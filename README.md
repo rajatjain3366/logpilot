@@ -8,10 +8,14 @@ LogPilot is an open-source, local command-line tool that scans JavaScript and Ty
 (Node.js) projects for code that would leave you **without evidence** when something goes
 wrong in production, for example an error that is caught and then silently thrown away.
 
-> **Status: early prototype, v0.4.3.** Three rules exist today: LP001, LP002 and LP003, and LP003
-> findings can show a proposed fix ([fix previews](#fix-previews), never applied). The CLI is
-> not published to npm yet; see [Quick start](#quick-start) for running it from this repository.
-> Before relying on the results, read [Accuracy](#accuracy).
+> **Status: early prototype, v0.5.0.** Three rules exist today: LP001, LP002 and LP003. LP003
+> findings can show a proposed fix ([fix previews](#fix-previews)), and `logpilot fix` applies the
+> fixes you approve, one question at a time ([Applying fixes](#applying-fixes-logpilot-fix)). The
+> CLI is not published to npm yet; see [Quick start](#quick-start) for running it from this
+> repository. Before relying on the results, read [Accuracy](#accuracy).
+
+> **New in v0.5.0: `logpilot fix`.** It asks before every change, writes only files that git can
+> restore exactly, and tells you how to undo. `scan` stays read-only.
 
 > **Changed in v0.4.3: LP001 (`empty-catch`) is off by default.** Most empty catches on real
 > projects were deliberate (see [LP001 in more detail](#lp001-in-more-detail)). **If your CI runs
@@ -52,7 +56,9 @@ suggests how to fix it.
 ## Principles
 
 - **Local and private.** Runs on your machine. No account, no upload, no network needed to scan.
-- **Read-only.** A scan never modifies your files.
+- **`scan` is read-only.** A scan never modifies your files. `logpilot fix` (see
+  [Applying fixes](#applying-fixes-logpilot-fix)) changes a file only after you answer `y`, only
+  files git can restore exactly, and always tells you how to undo the change.
 - **Accurate over noisy.** Few, well-explained findings beat many weak warnings. A missing
   `console.log` is not automatically a problem.
 - **Safe suggestions.** LogPilot never suggests logging secrets, tokens, credentials, payment
@@ -76,6 +82,7 @@ Once LogPilot is published to npm, the same command will be `npx logpilot scan .
 
 ```text
 logpilot scan [path] [options]   Scan a folder or a single file (default: the current folder)
+logpilot fix [path] [options]    Show each LP003 fix and ask you; write a file only after you answer y
 logpilot --help, -h              Show help
 logpilot --version, -v           Show the version
 
@@ -101,6 +108,9 @@ Scan options:
                            refer back to the first one)
 
 Rules: LP001 empty-catch (off by default), LP002 lost-error-cause, LP003 unlogged-error-response.
+
+Fix options: --config, --no-config, --exclude, --no-default-excludes (as for scan), and
+  --output <file>          Write a JSON record of the run (what was written, declined, skipped)
 ```
 
 ## Example output
@@ -196,8 +206,9 @@ and counts such files in the summary. Warnings do not change the exit code.
 ## Fix previews
 
 `--fix-preview` shows a proposed fix under each LP003 finding, as a diff. **It is only a preview:
-LogPilot never changes your files.** Review the fix and apply it yourself. With `--format json`, each
-finding carries the fix as exact text edits (see [JSON output](#json-output)).
+`scan` never changes your files.** Review the fix and apply it yourself, or let
+[`logpilot fix`](#applying-fixes-logpilot-fix) apply the ones you approve. With `--format json`,
+each finding carries the fix as exact text edits (see [JSON output](#json-output)).
 
 From `node dist/cli.js scan test/fixtures/fix/loggers/pino-in-file.js --fix-preview --no-config`
 (the file creates a pino logger, so the fix uses it; the "Why" and "Fix" lines are left out here):
@@ -338,6 +349,68 @@ which many handlers rule out by checking it first.
   would change what the log line means;
 - LP001 and LP002 findings. An empty catch needs a human decision; for LP002, ESLint's
   `preserve-caught-error` offers a fix in your editor.
+
+## Applying fixes (`logpilot fix`)
+
+> **New in v0.5.0.** Tried by hand in Git Bash (with `node` and `node.exe`), VS Code's terminal and
+> PowerShell on Windows, and measured on copies of 7 real apps (99 of 99 fixes applied; see
+> [docs/evaluation.md](docs/evaluation.md#milestone-4-logpilot-fix-on-copies-of-the-tuning-apps)).
+
+`logpilot fix [path]` shows each LP003 fix that `--fix-preview` would show, **asks you**, and writes
+a file only after you answer `y`:
+
+```text
+[1/3] src/routes/users.js:6:5  LP003 unlogged-error-response (severity high, confidence high)
+  Log the caught error with console.error just before the error response on line 7.
+    --- a/src/routes/users.js
+    ...
+Apply this fix?  y = yes   n = no   s = skip the rest of this file   q = quit   ? = help
+>
+```
+
+- **Answers:** `y` (yes), `n` (no), `s` (skip the rest of this file), `q` (quit), `?` (help).
+  Enter alone does nothing. There is no "yes to everything" option.
+- **One write per file:** your answers for a file are collected first; then all the fixes you
+  accepted for it are checked together and written at once.
+- **Stopping:** `q` or Ctrl+C at a question stops at once. Files already written stay written;
+  fixes you accepted in the current file are not written. Ctrl+C while a file is being written
+  stops right after that file is complete. Keys you press during a write are ignored (they never
+  answer a question), and LogPilot says so.
+- **What it says at the end is what happened:** the files it wrote, and the git commands to see
+  and undo the changes (`git diff -- "<file>"`, `git checkout -- "<file>"`), or "Nothing was
+  written." Then: run your tests.
+
+**Before it asks about a file**, the file must be: in a git repository, tracked by git, with no
+uncommitted changes (commit or stash first), inside the folder you gave, not reached through a
+symbolic link or junction, without a second name (hard link), not read-only, valid UTF-8, and
+**restorable byte for byte by git**. (With `core.autocrlf=true`, a file with LF or mixed line
+endings is "clean" for git but would come back with CRLF, so it is not offered.) A file that fails
+a check is listed with the reason and not asked about.
+
+**How it writes:** to a temporary file next to the original, flushed to disk, then renamed over the
+original in one step, so a crash never leaves half a file. A file another program has open is tried
+again for up to 2 seconds. Then LogPilot reads the file back and checks it again: it parses, the
+fixed findings are gone, and nothing else changed.
+
+- If LogPilot's own bytes fail that check (a LogPilot bug), it writes the original back and checks
+  that too.
+- If the file on disk is **not** what LogPilot wrote (another program changed it in that moment),
+  it writes nothing back, so that change is not lost, stops with exit code 2, and shows you the git
+  commands.
+
+**It needs a terminal.** With input or output piped or redirected (`|`, `<`, `>`), it stops at once
+with exit code 2 and changes nothing. In Git Bash, run it directly in the window (`node` or
+`node.exe` both work); do not pipe it.
+
+`--output <file>` writes a JSON record of the run: what was offered, applied, declined, skipped or
+not written and why, each file's SHA-256 before and after, and the undo commands.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Finished: every fix you accepted was written and checked (also when you accepted none, or quit with `q`) |
+| 1 | At least one fix you accepted was not written (the file changed, was locked, or failed the check and was put back) |
+| 2 | It could not run (no terminal, not a git repository, bad arguments), or it stopped because a file needs you |
+| 130 | Stopped by Ctrl+C |
 
 ## Rules
 
@@ -671,7 +744,7 @@ findings there are not reported):
 ```json
 {
   "schemaVersion": 3,
-  "tool": { "name": "logpilot", "version": "0.4.3" },
+  "tool": { "name": "logpilot", "version": "0.5.0" },
   "rules": [
     { "id": "LP001", "name": "empty-catch", "version": 3, "enabled": false },
     { "id": "LP002", "name": "lost-error-cause", "version": 1, "enabled": true },
@@ -767,6 +840,9 @@ findings there are not reported):
 | `1` | At least one shown finding is at or above `--fail-on` (only when you set it) |
 | `2` | LogPilot could not run: bad arguments, an invalid config file, a path that does not exist, a report file it could not write, or an internal error |
 
+These are the exit codes of `scan`. `logpilot fix` has its own: see
+[Applying fixes](#applying-fixes-logpilot-fix).
+
 **Changed in v0.2.0:** v0.1.0 exited with code 1 whenever there was a finding. Now it does so only
 with `--fail-on`. Code 2 still lets scripts and CI tell "the tool failed" apart from a finished
 scan.
@@ -811,14 +887,22 @@ What LogPilot adds today, and no more:
 - **Published accuracy measurements** for every rule ([Accuracy](#accuracy)). They show that most
   LP001 and LP002 findings are not real problems. They are a measurement, not a claim of quality.
 
-What LogPilot does **not** offer: editor integration, applying fixes (LP003 fixes are only shown, as
-[previews](#fix-previews)), or the breadth of a linter.
+What LogPilot does **not** offer: editor integration, automatic fixing without your approval
+(`logpilot fix` asks about every fix), or the breadth of a linter.
 We have not measured how many LogPilot findings these lint rules also report.
 
 ## Limitations
 
 - **Most findings are not real problems, and severity does not yet separate the real ones.** See
   [Accuracy](#accuracy) for the measured numbers.
+- **`logpilot fix`:**
+  - it applies LP003 fixes only, and only those `--fix-preview` shows;
+  - it needs a terminal, and has no "yes to everything" or non-interactive mode;
+  - it never runs your project's tests: run them yourself after it;
+  - with `core.autocrlf=true`, files whose line endings git would change on checkout are not
+    offered;
+  - replacing a file gives it the folder's default Windows permissions (ACLs) and, on Linux and
+    macOS, your user as owner; for normal source files these are the same as before.
 - **LP001 is off by default (v0.4.3),** so a default scan does not report empty catches, not even
   the few that are real problems or the "this test can never fail" case. Turn it on with
   `--enable LP001`.

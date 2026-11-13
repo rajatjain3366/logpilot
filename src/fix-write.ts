@@ -12,8 +12,11 @@
 //      rename fails while ANY program has the file open (measured in Milestone 4's spike, also with
 //      FILE_SHARE_DELETE), and reading fails while a program has it open without sharing, so every
 //      step is retried every 100 ms for up to 2 s while a lock blocks it.
-//   4. The file is read back. It must have exactly the new bytes and pass the caller's check (the
-//      rules re-run on it). If not, the original bytes are written back the same way and checked.
+//   4. The file is read back. If it does NOT have exactly the new bytes, another program may have
+//      written in between: nothing is written back (that would destroy the other change), and the
+//      outcome says so, so a person can decide. If it has the new bytes but they fail the caller's
+//      check (the rules re-run on them: a LogPilot bug), the original bytes are written back the
+//      same way and checked.
 // All of this is synchronous: Ctrl+C is honoured only between files, never in the middle of a write.
 
 import { randomBytes } from "node:crypto";
@@ -26,10 +29,16 @@ export type WriteOutcome =
   | { status: "written" }
   /** Nothing was written: the file is exactly as before. */
   | { status: "not-written"; reason: string }
-  /** The new bytes were written but failed the check; the original bytes were written back and verified. */
+  /** The new bytes are on disk but failed the check (a LogPilot bug); the original bytes were written back and verified. */
   | { status: "restored"; reason: string }
   /** The new bytes failed the check AND writing back the original failed: the file may be wrong. */
-  | { status: "restore-failed"; reason: string };
+  | { status: "restore-failed"; reason: string }
+  /**
+   * After the write, the file did NOT have the bytes LogPilot wrote (or could not be read back):
+   * another program may have changed it in between. Nothing was written back, because that would
+   * destroy the other change. A person must look at the file (git diff) and decide.
+   */
+  | { status: "changed-after-write"; reason: string };
 
 export interface ReplaceOptions {
   /** Checks the bytes read back after the write: returns why they are wrong, or undefined. */
@@ -68,25 +77,30 @@ export function replaceFile(file: string, original: Buffer, replacement: Buffer,
   if (writeProblem !== undefined) return { status: "not-written", reason: writeProblem };
   options.hooks?.afterRename?.(file);
 
-  const problem = checkOnDisk(file, replacement, options.check, options);
+  // Are LogPilot's own bytes on disk? If not, someone else may have written: never overwrite that.
+  const onDisk = readBack(file, replacement, options);
+  if (onDisk !== undefined) return { status: "changed-after-write", reason: onDisk };
+
+  const problem = options.check?.(replacement);
   if (problem === undefined) return { status: "written" };
 
-  // The written file is wrong: put the original bytes back, and check that they really are back.
-  const restoreProblem = atomicWrite(file, original, mode, options) ?? checkOnDisk(file, original, undefined, options);
+  // LogPilot's own bytes are on disk, but they fail the check: put the original bytes back, and
+  // check that they really are back.
+  const restoreProblem = atomicWrite(file, original, mode, options) ?? readBack(file, original, options);
   if (restoreProblem === undefined) return { status: "restored", reason: problem };
   return { status: "restore-failed", reason: `${problem}; writing back the original also failed: ${restoreProblem}` };
 }
 
-/** Why the bytes on disk are not `expected` or fail `check`, or undefined when all is well. */
-function checkOnDisk(file: string, expected: Buffer, check: ReplaceOptions["check"], options: ReplaceOptions): string | undefined {
+/** Why the file on disk does not have exactly the bytes `expected`, or undefined when it does. */
+function readBack(file: string, expected: Buffer, options: ReplaceOptions): string | undefined {
   let onDisk: Buffer;
   try {
     onDisk = retryWhileLocked(() => readFileSync(file), options); // e.g. a virus scanner reading the new file
   } catch (error) {
-    return problemWith(error, "it could not be read back");
+    return problemWith(error, "it could not be read back to check it");
   }
-  if (!onDisk.equals(expected)) return "the file on disk does not have the bytes LogPilot wrote (did another program change it?)";
-  return check?.(onDisk);
+  if (!onDisk.equals(expected)) return "the file on disk does not have the bytes LogPilot wrote: another program may have changed it";
+  return undefined;
 }
 
 /**

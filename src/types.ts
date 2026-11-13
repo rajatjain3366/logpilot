@@ -82,6 +82,23 @@ export interface FixPreview {
   edits: TextEdit[];
   /** A unified diff of the edits, for reading (line endings shown as plain new lines). */
   diff?: string;
+  /**
+   * Internal, never in the JSON report: the names the fix's inserted code may use, so `logpilot fix`
+   * can check the fixes of one file together (validateFixSet in fix-validate.ts).
+   */
+  safety?: FixSafety;
+}
+
+/** The names a fix's inserted code may use (decided by the fixer, checked by fix-validate.ts). */
+export interface FixSafety {
+  /** The caught error's variable, e.g. "err". */
+  errorName: string;
+  /** The request parameter, e.g. "req", or undefined when the fix uses no request context. */
+  requestName?: string;
+  /** The logger the fix calls, e.g. "console" or "logger". */
+  loggerName: string;
+  /** Another key the error may be logged under, copied from the project's own log calls (e.g. "error"). */
+  errorKey?: string;
 }
 
 /** Why LogPilot did not scan a file or folder. */

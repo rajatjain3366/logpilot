@@ -67,6 +67,11 @@ describe("which modules can write files", () => {
     expect([...used].filter((m) => m === "src/fix-write.ts")).toEqual([]);
   });
 
+  it("only fix-command.ts (logpilot fix, after the user's y) imports fix-write.ts", () => {
+    const importers = sourceModules().filter((m) => localImports(m).includes("src/fix-write.ts"));
+    expect(importers).toEqual(["src/fix-command.ts"]);
+  });
+
   it("the guards themselves work", () => {
     expect("{ readFileSync, writeFileSync }").toMatch(WRITE_FUNCTIONS);
     expect("{ chmodSync, lstatSync }").toMatch(WRITE_FUNCTIONS);

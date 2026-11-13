@@ -40,22 +40,41 @@ export function withRepo(
   options: { autocrlf?: "true" | "false" } = {},
 ): void {
   const dir = mkdtempSync(path.join(os.tmpdir(), "logpilot-fix-test-"));
-  const repo = path.join(dir, "my repo");
   try {
-    mkdirSync(repo);
-    git(repo, "init", "-q");
-    git(repo, "config", "core.autocrlf", options.autocrlf ?? "false");
-    git(repo, "config", "core.safecrlf", "false");
-    git(repo, "config", "user.name", "LogPilot test");
-    git(repo, "config", "user.email", "test@example.invalid");
-    git(repo, "config", "commit.gpgsign", "false");
-    writeFiles(repo, files);
-    git(repo, "add", "-A");
-    git(repo, "commit", "-q", "--allow-empty", "-m", "initial");
-    body(repo);
+    body(createRepo(dir, files, options));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Like withRepo, for an async `body`: the folder is deleted only after `body` has finished. */
+export async function withRepoAsync(
+  files: Record<string, string | Buffer>,
+  body: (repo: string) => Promise<void>,
+  options: { autocrlf?: "true" | "false" } = {},
+): Promise<void> {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "logpilot-fix-test-"));
+  try {
+    await body(createRepo(dir, files, options));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Creates "<dir>/my repo" with `files` committed, and returns its path. */
+function createRepo(dir: string, files: Record<string, string | Buffer>, options: { autocrlf?: "true" | "false" }): string {
+  const repo = path.join(dir, "my repo");
+  mkdirSync(repo);
+  git(repo, "init", "-q");
+  git(repo, "config", "core.autocrlf", options.autocrlf ?? "false");
+  git(repo, "config", "core.safecrlf", "false");
+  git(repo, "config", "user.name", "LogPilot test");
+  git(repo, "config", "user.email", "test@example.invalid");
+  git(repo, "config", "commit.gpgsign", "false");
+  writeFiles(repo, files);
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "--allow-empty", "-m", "initial");
+  return repo;
 }
 
 /**

@@ -17,6 +17,9 @@ measurement.
 tuning apps; it measures the fixes, not the findings, and is not a precision claim.
 [Early testers](#early-testers) records what four people found when they ran v0.4.1 on their own
 projects; it is not a precision claim either.
+[Milestone 4](#milestone-4-logpilot-fix-on-copies-of-the-tuning-apps) checks that `logpilot fix`
+writes exactly the fixes it shows, on copies of the tuning apps (99 of 99 applied, every changed
+file only gained characters).
 
 **Commit hashes:** the LogPilot commits cited here (`be0126b`, `15f0b46`, `5c9a4a6`, `318499c`, and any other) refer to the private development history; the public repository starts from a single snapshot commit. Exception: `4f741fa`, cited in the Milestone 3 section, is a commit of the public repository.
 
@@ -415,6 +418,80 @@ own repository at v0.4.3 turns LP001 on in its config: 45 files, 0 findings, 1 s
 **Recorded for later, not built:** LP003 for Next.js API routes (T2); a lower LP003 severity in
 test helper files (T1); for LP003 in error middleware, placing the fix inside the branch that sends
 the 5xx response (T1).
+
+## Milestone 4: `logpilot fix` on copies of the tuning apps
+
+Not a precision measurement: it checks that `logpilot fix` writes exactly what it shows, safely, on
+real code. Only the 7 apps of the [Milestone 3](#milestone-3-lp003-fix-previews-on-the-tuning-apps)
+evaluation were used, and only **copies** of them; the held-out apps were never opened.
+
+**Method** (a private protocol, sealed before the run; SHA-256
+`638f62cc043dff9824e906548e69222220db9e41a1bac28ca275c077851e3f45`):
+
+1. The original app folders were fingerprinted (every file's path, size, time and SHA-256). The
+   fingerprints equalled Milestone 3's final ones, and were the same again after the run: **no
+   original file was changed.**
+2. Each app was copied without its `.git` folder and committed into a fresh git repository
+   (`core.autocrlf=false` there, so git keeps the bytes as copied).
+3. `logpilot fix` (Checkpoint 3 code, before the version became 0.5.0) ran on each copy through its
+   own `runFix` function, driven by a private script that answered `y` to every question (the
+   command itself refuses to run without a terminal).
+4. Checks per copy: git status (no new or deleted file), git's line diff, parsing of every changed
+   file, `node --check` before and after on every changed `.js` file (it only parses; no app code
+   was run), and a re-scan with all rules. **The apps' own tests were not run:** they need
+   `npm install`, which runs third-party install scripts and needs the network.
+
+| App | LP003 findings | Fixes asked and applied | Files written | Lines added (git) | Lines "deleted" (git) | Exit code |
+|---|---|---|---|---|---|---|
+| A | 77 | 75 | 17 | 75 | 0 | 0 |
+| B | 0 | 0 | 0 | 0 | 0 | 0 |
+| D | 6 | 5 | 2 | 5 | 0 | 0 |
+| E | 6 | 4 | 1 | 6 | 2 | 0 |
+| F | 12 | 12 | 1 | 23 | 11 | 0 |
+| G | 2 | 2 | 1 | 2 | 0 | 0 |
+| H | 1 | 1 | 1 | 2 | 1 | 0 |
+| **All** | **104** | **99 of 99 offered** | **23** | **113** | **14** | |
+
+**Results:**
+
+- **Every offered fix was applied:** 99 of 99, the same 99 that `--fix-preview` shows (the
+  5 findings without a fix are the cases listed under [Fix previews](../README.md#fix-previews)).
+  No file was refused, no write failed, nothing was restored, and no temporary file was left.
+- **Every changed file still parses,** and `node --check` gave the same result before and after for
+  all 21 changed `.js` files.
+- **The re-scan agrees exactly:** in every app, LP003 findings fell by exactly the number of fixes
+  applied, and LP001 and LP002 findings did not change in any file.
+- **One criterion of the protocol failed as written:** "0 deleted lines in git's diff" (14 lines in
+  3 apps). It was the wrong test: git's diff works on whole lines, so a fix that inserts text
+  *inside* a line shows as one line deleted and one added. All 14 are `catch {` becoming
+  `catch (err) {`, which gives the error a name so that it can be logged. A check added after the
+  run (recorded in a post-seal note) tests insertion at the character level: in **23 of 23** changed
+  files, the old text is the new text with characters only added, none removed or changed.
+- **Time:** 4.3 seconds for all 7 apps, including scanning, checking and writing.
+
+**What this does not measure:** whether the fixed apps still behave the same at runtime (no app
+code was run), and how often real projects hit the "Not asked" refusals: the copies were freshly
+committed, so every file was clean and tracked.
+
+## Milestone 4: hardening found while building `logpilot fix`
+
+Not a precision measurement: two problems in LogPilot's own unreleased code, found by tests before
+any release. Both are fixed; see also [SECURITY.md](../SECURITY.md#hardening).
+
+- **A planted `git.exe` could run instead of git (Windows).** Windows, and Node.js with it, looks
+  for a program started by its bare name (`git`) in the **current folder first**, before the folders
+  in `PATH`, unless `NoDefaultCurrentDirectoryInExePath` is set. LogPilot now resolves git by its
+  absolute path from the absolute `PATH` folders and skips relative entries such as `.`, which also
+  protects Linux and macOS. **How it was found:** the test for it passed in the development
+  environment, which sets that variable, so it never ran the planted file at all. It failed in an
+  early user's Git Bash. Lesson: a test whose danger depends on the environment must first prove
+  that the danger exists (that a plain `git` would run the planted file) before it checks that
+  LogPilot avoids it. The test now does that on every Windows machine.
+- **Every file was "outside the git repository" when a folder had two spellings (Windows).** On
+  GitHub's Windows runners the temp folder is an 8.3 short path (`C:\Users\RUNNER~1\...`), while
+  git reports long names for the same folder. LogPilot now compares real paths. **How it was
+  found:** CI failed on `windows-latest` only; it was reproduced locally by setting `TEMP` to an
+  8.3 short folder.
 
 ## Current results: LP003 on held-out Express apps
 

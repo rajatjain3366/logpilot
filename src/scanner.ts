@@ -26,6 +26,8 @@ export interface ScanResult {
   warnings: ScanWarning[];
   /** Files and folders that were not scanned, and why. */
   skipped: SkippedPath[];
+  /** With `keepTexts`: display path -> the exact text that was scanned. */
+  texts?: Map<string, string>;
 }
 
 /** Settings that decide which files are scanned. */
@@ -40,6 +42,8 @@ export interface ScanOptions {
   fixPreview?: boolean;
   /** The rules that run (see enabledRuleIds in analyze.ts). Default: the rules that are on by default. */
   enabledRules?: ReadonlySet<string>;
+  /** Keep each scanned file's text in `texts` (for `logpilot fix`, which must apply fixes to exactly this text). */
+  keepTexts?: boolean;
 }
 
 /**
@@ -134,6 +138,7 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
       // Logger detection may read one imported module, but only inside the scanned folder.
       warnings.push(...attachFixPreviews(sourceFile, displayPath, kept, syntaxErrors.length > 0, scanRoot));
     }
+    if (options.keepTexts) (result.texts ??= new Map()).set(displayPath, text);
     result.findings.push(...kept);
     result.suppressed.push(...suppressed);
     result.warnings.push(...warnings);

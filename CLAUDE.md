@@ -33,8 +33,8 @@ evidence (code snippet), explanation, suggestion.
 ## Roadmap
 1. CLI scanner + a few tested rules  ✓ done
 2. Structured findings, JSON output, config, suppressions  ✓ done
-3. Suggested fixes + diff previews  ← CURRENT
-4. Approval-based patch application + validation
+3. Suggested fixes + diff previews  ✓ done (v0.4.0)
+4. Approval-based patch application + validation  ✓ done (v0.5.0, `logpilot fix`)
 5. GitHub Actions / PR integration
 6. Optional AI explanations and fix proposals
 7. Web dashboard (only if CLI proves useful)
