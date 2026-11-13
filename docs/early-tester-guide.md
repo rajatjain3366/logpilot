@@ -31,14 +31,18 @@ are no wrong answers, and nothing you send is shared with your name.
 2. Scan your project's backend folder (still inside the `logpilot` folder):
 
    ```bash
-   node dist/cli.js scan path/to/your/project/backend > logpilot-report.txt
+   node dist/cli.js scan path/to/your/project/backend --output logpilot-report.txt
    ```
 
    **If the path has spaces, put it in double quotes**, for example:
 
    ```bash
-   node dist/cli.js scan "C:/Users/you/My Projects/shop/backend" > logpilot-report.txt
+   node dist/cli.js scan "C:/Users/you/My Projects/shop/backend" --output logpilot-report.txt
    ```
+
+   `--output` makes LogPilot write the report file itself. This works in every terminal. In Git
+   Bash, writing it with `>` instead fails with "stdout is not a tty" unless you type `node.exe`
+   instead of `node` (see [Troubleshooting](../README.md#troubleshooting)).
 
    The last lines of `logpilot-report.txt` say how many files were scanned and how many findings
    there are. Zero findings is a useful answer too. Since v0.4.3, empty catches (LP001) are not
@@ -56,7 +60,7 @@ are no wrong answers, and nothing you send is shared with your name.
 5. Optional: look at the fixes LogPilot proposes for its LP003 findings.
 
    ```bash
-   node dist/cli.js scan path/to/your/project/backend --fix-preview > logpilot-fixes.txt
+   node dist/cli.js scan path/to/your/project/backend --fix-preview --output logpilot-fixes.txt
    ```
 
    Under each LP003 finding there is now a "Proposed fix" with a diff: the lines starting with `+`

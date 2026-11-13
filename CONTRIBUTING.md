@@ -66,6 +66,9 @@ src/
   fixes.ts                         --fix-preview: attaches a checked fix (or why there is none) to findings
   fix-edits.ts                     applies text edits to a string in memory; unified diffs
   fix-validate.ts                  checks a proposed fix before it is shown (parses, safe names, rules re-run)
+  git.ts                           runs git by its full path (never from the current folder), with fixed arguments and no shell: repository root, tracked and changed files, checkout bytes
+  fix-preconditions.ts             logpilot fix (in progress): which files may be changed, and why not
+  fix-write.ts                     logpilot fix (in progress): the ONLY module that writes source files (atomic replace, restore)
   severity.ts                      severity levels, --min-severity and --fail-on checks
   report.ts                        formats findings as readable text
   report-json.ts                   the JSON report (--format json, schema version 3)
@@ -95,7 +98,11 @@ test/
   fix-edits.test.ts                applying edits, and the unified diff format
   fix-validate.test.ts             fix validation, including "never logs secrets"
   lp003-fix.test.ts                LP003 fix previews: placement, style, names, axios, no-fix reasons
-  no-write.test.ts                 the fix-preview modules import no file-writing function
+  no-write.test.ts                 only fix-write.ts (and cli.ts for --output) can write; nothing scan uses reaches fix-write.ts
+  git.test.ts                      git.ts, in throw-away repositories
+  fix-preconditions.test.ts        every refusal reason of fix-preconditions.ts, and the files that are accepted
+  fix-write.test.ts                atomic replace, lock retries (a real lock on Windows), restore, leftover temp files
+  temp-repo.ts                     test helper (not a test): throw-away git repositories in the system temp folder
   fixtures/positive/               code that MUST be reported
   fixtures/edge/                   tricky code: reported, often with lower severity or confidence
   fixtures/negative/               code that NO rule may report

@@ -943,6 +943,25 @@ statements that leave a `catch` block directly. It does **not** see:
 
 ## Troubleshooting
 
+**Git Bash: "stdout is not a tty", and an empty report file.** In Git Bash, Git for Windows makes
+`node` an alias for `winpty node.exe` (check with `type node`). winpty only works when the output
+goes to the terminal, so `node dist/cli.js scan . > report.txt` or `node dist/cli.js scan . | less`
+prints `stdout is not a tty` and the report stays empty. Either call `node.exe` directly when you
+redirect or pipe:
+
+```bash
+node.exe dist/cli.js scan . > report.txt
+```
+
+or let LogPilot write the file, which works with the alias too:
+
+```bash
+node dist/cli.js scan . --output report.txt
+```
+
+(Both checked in Git Bash with Git for Windows 2.47. PowerShell and VS Code's terminal have no such
+alias.)
+
 **`npm test` fails with "Vitest failed to find the runner" (Windows).** Your terminal's current
 folder has a lowercase drive letter (`c:\code\logpilot` instead of `C:\code\logpilot`). Node then
 loads Vitest twice, because it treats the two spellings as different files. VS Code's terminal can
