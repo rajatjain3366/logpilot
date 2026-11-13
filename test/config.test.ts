@@ -83,14 +83,17 @@ describe("loadConfig", () => {
     return loadConfig(file, "logpilot.config.json");
   }
 
+  // CHANGED ON PURPOSE (v0.4.3): the "rules" setting was added ({} when the file names no rule).
   it("reads the settings, and fills in defaults for missing ones", () => {
-    expect(load('{ "exclude": ["docs/**"], "defaultExcludes": false, "minSeverity": "medium", "failOn": "high" }')).toEqual({
+    const text = '{ "exclude": ["docs/**"], "defaultExcludes": false, "minSeverity": "medium", "failOn": "high", "rules": { "LP001": "on", "LP003": "off" } }';
+    expect(load(text)).toEqual({
       exclude: ["docs/**"],
       defaultExcludes: false,
       minSeverity: "medium",
       failOn: "high",
+      rules: { LP001: "on", LP003: "off" },
     });
-    expect(load("{}")).toEqual({ exclude: [], defaultExcludes: true, minSeverity: "low", failOn: "none" });
+    expect(load("{}")).toEqual({ exclude: [], defaultExcludes: true, minSeverity: "low", failOn: "none", rules: {} });
   });
 
   it.each([
@@ -99,8 +102,16 @@ describe("loadConfig", () => {
     ['"text"', "logpilot.config.json: must contain a JSON object"],
     [
       '{ "excludes": [] }',
-      'logpilot.config.json: unknown setting "excludes" (known settings: exclude, defaultExcludes, minSeverity, failOn)',
+      // CHANGED ON PURPOSE (v0.4.3): "rules" is a known setting now.
+      'logpilot.config.json: unknown setting "excludes" (known settings: exclude, defaultExcludes, minSeverity, failOn, rules)',
     ],
+    // v0.4.3: the "rules" setting.
+    ['{ "rules": ["LP001"] }', 'logpilot.config.json: "rules" must be an object, for example { "LP001": "on" }'],
+    ['{ "rules": "LP001" }', 'logpilot.config.json: "rules" must be an object, for example { "LP001": "on" }'],
+    ['{ "rules": { "LP009": "on" } }', 'logpilot.config.json: "rules": unknown rule "LP009" (known rules: LP001, LP002, LP003)'],
+    ['{ "rules": { "lp001": "on" } }', 'logpilot.config.json: "rules": unknown rule "lp001" (known rules: LP001, LP002, LP003)'],
+    ['{ "rules": { "LP001": true } }', 'logpilot.config.json: "rules": "LP001" must be "on" or "off"'],
+    ['{ "rules": { "LP001": "enabled" } }', 'logpilot.config.json: "rules": "LP001" must be "on" or "off"'],
     ['{ "minSeverity": "critical" }', 'logpilot.config.json: "minSeverity" must be one of low, medium, high'],
     ['{ "failOn": "always" }', 'logpilot.config.json: "failOn" must be one of none, low, medium, high'],
     ['{ "defaultExcludes": "no" }', 'logpilot.config.json: "defaultExcludes" must be true or false'],

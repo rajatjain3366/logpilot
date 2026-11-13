@@ -38,7 +38,12 @@ export interface ReportOptions {
   minSeverity?: Severity;
   /** The scan ran with --fix-preview: show the proposed fixes and count them in the summary. */
   fixPreview?: boolean;
-  /** Repeat the full explanation, suggestion and fix notes for every finding (--verbose). */
+  /** Rules that did not run only because they are off by default (the summary says how to turn them on). */
+  offByDefault?: { id: string; name: string; reason: string }[];
+  /**
+   * Show every finding in full (--verbose). Without it, findings with the same pattern are listed
+   * under the first one, and later findings of the same kind refer back to the first one.
+   */
   verbose?: boolean;
   /** Wrap text at this many columns (see reportWidth). Default: 100. */
   width?: number;
@@ -57,7 +62,10 @@ interface ReportState {
   texts: Map<string, string>;
 }
 
-/** The full text report: every finding, then the summary. Ends with a newline. */
+/**
+ * The full text report: every finding (findings with a repeated pattern listed under the first
+ * one), then the summary. Ends with a newline.
+ */
 export function formatReport(result: ScanResult, options: ReportOptions = {}): string {
   const state: ReportState = {
     width: options.width ?? DEFAULT_WIDTH,
@@ -65,7 +73,16 @@ export function formatReport(result: ScanResult, options: ReportOptions = {}): s
     cases: new Map(),
     texts: new Map(),
   };
-  const sections = result.findings.map((finding) => formatFinding(finding, state));
+  // Findings with the same pattern: the first is shown in full, the others are listed under it by
+  // location (every location is still printed). --verbose shows each one in full instead.
+  const groups = state.verbose ? new Map<string, Finding[]>() : groupsByPattern(result.findings);
+  const sections: string[] = [];
+  for (const finding of result.findings) {
+    const group = finding.pattern === undefined ? undefined : groups.get(finding.pattern.id);
+    if (group !== undefined && group[0] !== finding) continue; // listed under the first one
+    const section = formatFinding(finding, state);
+    sections.push(group === undefined ? section : `${section}\n${formatGroupList(group, state.width).join("\n")}`);
+  }
   sections.push(formatSummary(result, options));
   if (options.showSkipped && result.skipped.length > 0) {
     sections.push(formatSkippedList(result.skipped));
@@ -113,6 +130,39 @@ function formatFinding(finding: Finding, state: ReportState): string {
   }
   lines.push(...formatFixPreview(finding, location, state));
   return lines.join("\n");
+}
+
+/**
+ * The patterns that more than one finding has: pattern ID -> its findings, in report order.
+ * LP003 findings have no pattern, so they are never grouped.
+ */
+function groupsByPattern(findings: Finding[]): Map<string, Finding[]> {
+  const all = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    if (finding.pattern === undefined) continue;
+    const group = all.get(finding.pattern.id) ?? [];
+    group.push(finding);
+    all.set(finding.pattern.id, group);
+  }
+  return new Map([...all].filter(([, group]) => group.length > 1));
+}
+
+/**
+ * The rest of a group, under its first finding, e.g.
+ *   Same pattern in 2 more places (throw new ApiError(...) without the caught error):
+ *     lib/api/orders.ts:9:5
+ *     lib/api/users.ts:30:5
+ */
+function formatGroupList(group: Finding[], width: number): string[] {
+  const others = group.slice(1);
+  const header = `Same pattern in ${plural(others.length, "more place")} (${group[0].pattern?.label}):`;
+  return [...wrap(header, "  ", "    ", width), ...others.map((f) => `    ${f.file}:${f.line}:${f.column}`)];
+}
+
+/** How many patterns the findings have: findings without a pattern (LP003) count as one each. */
+export function patternCount(findings: Finding[]): number {
+  const ids = new Set(findings.filter((f) => f.pattern !== undefined).map((f) => f.pattern?.id));
+  return ids.size + findings.filter((f) => f.pattern === undefined).length;
 }
 
 /**
@@ -226,6 +276,13 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
     // Without this, "0 LP003 findings" in a Next.js or library project could look like a clean result.
     lines.push(NO_EXPRESS_LINE);
   }
+  for (const rule of result.filesScanned > 0 ? (options.offByDefault ?? []) : []) {
+    // Without this, a scan with LP001 off could look like "no empty catches here".
+    lines.push(
+      `${rule.id} (${rule.name}) is off by default: ${rule.reason}. Turn it on with "rules": { "${rule.id}": "on" } ` +
+        `in logpilot.config.json, or --enable ${rule.id}.`,
+    );
+  }
   if (options.configFile !== undefined) lines.push(`Config file: ${options.configFile}`);
   if (options.fixPreview) {
     const fixable = result.findings.filter((f) => FIXABLE_RULES.has(f.ruleId) && f.fix !== undefined);
@@ -241,13 +298,18 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
 /** Shown once in the summary when no scanned file has an Express handler. */
 export const NO_EXPRESS_LINE = "No Express handlers found: LP003 and fix previews only check Express apps.";
 
-/** e.g. "Scanned 7 files, 6 findings (LP001: 6)" or "Scanned 4 files, 0 findings". */
+/**
+ * e.g. "Scanned 7 files, 6 findings (LP001: 6)", "Scanned 4 files, 0 findings", or with repeated
+ * patterns "Scanned 9 files, 21 findings in 5 patterns (LP002: 21)".
+ */
 function formatScannedLine(result: ScanResult): string {
   const files = plural(result.filesScanned, "file");
-  const findings = plural(result.findings.length, "finding");
+  let findings = plural(result.findings.length, "finding");
   if (result.findings.length === 0) {
     return `Scanned ${files}, ${findings}`;
   }
+  const patterns = patternCount(result.findings);
+  if (patterns < result.findings.length) findings += ` in ${plural(patterns, "pattern")}`;
 
   const countsByRule = new Map<string, number>();
   for (const finding of result.findings) {

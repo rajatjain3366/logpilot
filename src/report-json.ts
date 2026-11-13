@@ -15,8 +15,11 @@
 // to the scanned folder (for a single file: its folder). Before, paths were relative to the folder
 // LogPilot was run from, so they changed with it; that changes which values these keys hold.
 // Also added: `summary.filesWithExpressHandlers`.
+// Added in v0.4.3 (no version change, only new keys): `enabled` for each rule, `config.rules`,
+// `pattern` for each finding, and `summary.patterns`.
 
 import { FIXABLE_RULES } from "./fixes.js";
+import { patternCount } from "./report.js";
 import type { ScanResult } from "./scanner.js";
 import type { FailOn } from "./severity.js";
 import type { Finding, FixPreview, ScanWarning, Severity } from "./types.js";
@@ -26,7 +29,8 @@ export const JSON_SCHEMA_VERSION = 3;
 /** What the JSON report needs besides the scan result: settings, rules and the outcome. */
 export interface JsonReportContext {
   toolVersion: string;
-  rules: { id: string; name: string; version: number }[];
+  /** Every rule, with whether it ran in this scan. */
+  rules: { id: string; name: string; version: number; enabled: boolean }[];
   config: {
     /** The config file used, as shown to the user, or null. */
     file: string | null;
@@ -49,7 +53,7 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
   const report = {
     schemaVersion: JSON_SCHEMA_VERSION,
     tool: { name: "logpilot", version: context.toolVersion },
-    rules: context.rules.map((rule) => ({ id: rule.id, name: rule.name, version: rule.version })),
+    rules: context.rules.map((rule) => ({ id: rule.id, name: rule.name, version: rule.version, enabled: rule.enabled })),
     config: {
       file: context.config.file,
       defaultExcludes: context.config.defaultExcludes,
@@ -57,12 +61,17 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
       minSeverity: context.config.minSeverity,
       failOn: context.config.failOn,
       fixPreview: context.config.fixPreview,
+      // Every rule, "on" or "off" in this scan (after the defaults, the config file and --enable), in
+      // the order of `rules`, so the output is the same on every run.
+      rules: Object.fromEntries(context.rules.map((rule) => [rule.id, rule.enabled ? "on" : "off"])),
     },
     summary: {
       filesScanned: result.filesScanned,
       // 0 means LP003 (and fix previews) had nothing to check: it looks at Express handlers only.
       filesWithExpressHandlers: result.filesWithExpressHandlers,
       findings: context.shown.length,
+      // Distinct patterns among the shown findings (a finding without a pattern counts as one).
+      patterns: patternCount(context.shown),
       // Every known rule and every severity is listed, also with 0, so the keys never change.
       findingsByRule: Object.fromEntries(context.rules.map((rule) => [rule.id, context.shown.filter((f) => f.ruleId === rule.id).length])),
       findingsBySeverity: {
@@ -113,6 +122,8 @@ function findingJson(f: Finding) {
     evidence: f.evidence,
     explanation: f.explanation,
     suggestion: f.suggestion,
+    // Findings with the same pattern ID share one explanation (null for LP003: never grouped).
+    pattern: f.pattern?.id ?? null,
     fix: f.fix === undefined ? null : fixJson(f.fix),
   };
 }

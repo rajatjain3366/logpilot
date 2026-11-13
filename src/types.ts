@@ -14,7 +14,7 @@ export interface Finding {
   ruleId: string;
   /** Short readable rule name, e.g. "empty-catch". */
   ruleName: string;
-  /** Path of the file, as shown in the report (relative to the current folder, "/" separators). */
+  /** Path of the file, as shown in the report (relative to the scanned folder, "/" separators). */
   file: string;
   /** 1-based line number where the problem starts. */
   line: number;
@@ -28,8 +28,22 @@ export interface Finding {
   explanation: string;
   /** What to do about it. */
   suggestion: string;
+  /**
+   * The finding's pattern, for grouping repeated findings (LP001 and LP002; LP003 is never grouped).
+   * Two findings with the same `id` have the same rule, case, levels, explanation template and code
+   * shape (e.g. the same thrown class), so one explanation fits both. See patternOf in rules/shared.ts.
+   */
+  pattern?: FindingPattern;
   /** The proposed fix, only when the scan ran with --fix-preview. A preview: nothing is ever applied. */
   fix?: FixPreview;
+}
+
+/** What makes findings "the same pattern" (see Finding.pattern). */
+export interface FindingPattern {
+  /** Stable ID such as "LP002-3f2a9c1b": the rule ID and a hash of the pattern's parts. */
+  id: string;
+  /** Short readable description, e.g. "throw new ApiError(...) without the caught error". */
+  label: string;
 }
 
 /**
@@ -80,7 +94,7 @@ export type SkipReason =
 
 /** A file or folder that was not scanned, and why. */
 export interface SkippedPath {
-  /** As shown in the report: relative to the current folder, "/" separators. */
+  /** As shown in the report: relative to the scanned folder, "/" separators. */
   path: string;
   kind: "file" | "folder";
   reason: SkipReason;

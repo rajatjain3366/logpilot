@@ -224,3 +224,87 @@ describe("formatReport: concise output by default, full text with --verbose (Mil
     expect(report).toContain("  No fix proposed: same as for line 30 above.");
   });
 });
+
+// v0.4.3: findings with the same pattern are listed under the first one.
+describe("formatReport: repeated patterns (v0.4.3)", () => {
+  const ApiError = { id: "LP002-aaaaaaaa", label: "throw new ApiError(...) without the caught error" };
+  const TextOnly = { id: "LP002-bbbbbbbb", label: "throw new Error(...) that keeps only the caught error's text" };
+  const lp002 = (file: string, line: number, pattern = ApiError) =>
+    makeFinding({ ruleId: "LP002", ruleName: "lost-error-cause", file, line, evidence: `    throw new X("${file}:${line}");`, pattern });
+  const result = (findings: Finding[]) => ({ filesScanned: 3, filesWithExpressHandlers: 0, findings, suppressed: [], warnings: [], skipped: [] });
+
+  it("shows the first finding of a pattern in full and lists every other location under it", () => {
+    const findings = [lp002("a.ts", 3), lp002("a.ts", 9, TextOnly), lp002("b.ts", 4), lp002("c.ts", 7)];
+    const report = formatReport(result(findings), { width: 100 });
+
+    expect(report).toBe(
+      [
+        "a.ts:3:5",
+        "  LP002 lost-error-cause | severity: high | confidence: medium",
+        "  Evidence:",
+        '    3 |     throw new X("a.ts:3");',
+        "  Why: Short explanation.",
+        "  Fix: Short suggestion.",
+        "  Same pattern in 2 more places (throw new ApiError(...) without the caught error):",
+        "    b.ts:4:5",
+        "    c.ts:7:5",
+        "",
+        "a.ts:9:5",
+        "  LP002 lost-error-cause | severity: high | confidence: medium",
+        "  Evidence:",
+        '    9 |     throw new X("a.ts:9");',
+        "  Why and fix: same as for line 3 above.",
+        "",
+        "Scanned 3 files, 4 findings in 2 patterns (LP002: 4)",
+        "No Express handlers found: LP003 and fix previews only check Express apps.",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("says '1 more place' for a pair, and does not group a pattern that occurs once", () => {
+    const report = formatReport(result([lp002("a.ts", 3), lp002("b.ts", 4), lp002("c.ts", 5, TextOnly)]));
+
+    expect(report).toContain("  Same pattern in 1 more place (throw new ApiError(...) without the caught error):\n    b.ts:4:5\n");
+    expect(report.match(/Same pattern/g)).toHaveLength(1);
+    expect(report).toContain("\nc.ts:5:5\n");
+  });
+
+  it("shows every finding in full with --verbose, and still counts patterns", () => {
+    const report = formatReport(result([lp002("a.ts", 3), lp002("b.ts", 4)]), { verbose: true });
+
+    expect(report).not.toContain("Same pattern");
+    expect(report).toContain("\nb.ts:4:5\n");
+    expect(report).toContain('    4 |     throw new X("b.ts:4");');
+    expect(report).toContain("Scanned 3 files, 2 findings in 1 pattern (LP002: 2)");
+  });
+
+  it("never groups findings without a pattern (LP003), and leaves out 'in N patterns' when nothing repeats", () => {
+    const lp003 = (line: number) => makeFinding({ ruleId: "LP003", ruleName: "unlogged-error-response", line });
+    const report = formatReport(result([lp003(3), lp003(9)]));
+
+    expect(report).not.toContain("Same pattern");
+    expect(report).toContain("\nsrc/a.ts:9:5\n");
+    expect(report).toContain("Scanned 3 files, 2 findings (LP003: 2)");
+  });
+});
+
+describe("formatReport: rules that are off by default (v0.4.3)", () => {
+  const off = [{ id: "LP001", name: "empty-catch", reason: "most empty catches are deliberate" }];
+  const line =
+    'LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with "rules": { "LP001": "on" } ' +
+    "in logpilot.config.json, or --enable LP001.";
+
+  it("says once in the summary that a rule is off by default, and how to turn it on", () => {
+    const report = formatReport({ filesScanned: 2, filesWithExpressHandlers: 2, findings: [], suppressed: [], warnings: [], skipped: [] }, { offByDefault: off });
+
+    expect(report).toBe(`Scanned 2 files, 0 findings\n${line}\n`);
+  });
+
+  it("says nothing when no rule is off by default, or when nothing was scanned", () => {
+    expect(formatReport({ filesScanned: 2, filesWithExpressHandlers: 2, findings: [], suppressed: [], warnings: [], skipped: [] })).toBe("Scanned 2 files, 0 findings\n");
+    expect(formatReport({ filesScanned: 0, filesWithExpressHandlers: 0, findings: [], suppressed: [], warnings: [], skipped: [] }, { offByDefault: off })).toBe(
+      "Scanned 0 files, 0 findings\n",
+    );
+  });
+});

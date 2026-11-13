@@ -43,7 +43,8 @@ Continuous integration ([.github/workflows/ci.yml](.github/workflows/ci.yml)) ru
 `npm test` on every push to `main` and every pull request, on Node 22 and 24, on Ubuntu and
 Windows. Then LogPilot scans its own code: `node dist/cli.js scan . --fail-on low` must report 0
 findings. [logpilot.config.json](logpilot.config.json) excludes `test/fixtures/**` (code written
-to be reported). If your change adds a finding in LogPilot's own code, fix it, or suppress it with
+to be reported) and turns LP001 on (off by default since v0.4.3), so empty catches in LogPilot's
+own code are still checked. If your change adds a finding in LogPilot's own code, fix it, or suppress it with
 a `logpilot-ignore` comment that gives the reason. Because of that config file, scan a fixture with
 `--no-config`, for example `node dist/cli.js scan test/fixtures/positive --no-config`.
 
@@ -60,7 +61,7 @@ src/
   names.ts                         splits names into words (newPassword -> new, password)
   node-version.ts                  the supported Node.js versions
   scanner.ts                       finds files and reads them, skips what should not be scanned
-  analyze.ts                       one file's text: parse it, run every rule, apply suppressions
+  analyze.ts                       the rule list (which are on by default); one file's text: parse it, run the enabled rules, apply suppressions
   suppressions.ts                  logpilot-ignore comments: which findings they hide, and warnings
   fixes.ts                         --fix-preview: attaches a checked fix (or why there is none) to findings
   fix-edits.ts                     applies text edits to a string in memory; unified diffs
@@ -69,7 +70,7 @@ src/
   report.ts                        formats findings as readable text
   report-json.ts                   the JSON report (--format json, schema version 3)
   types.ts                         shared data types (findings, skipped paths, warnings)
-  rules/shared.ts                  helpers used by several rules (catch variable, comments, evidence)
+  rules/shared.ts                  helpers used by several rules (catch variable, comments, evidence, patterns)
   rules/lp001-empty-catch.ts       rule LP001
   rules/lp002-lost-error-cause.ts  rule LP002
   rules/express.ts                 recognises Express handlers and error middleware (used by LP003)

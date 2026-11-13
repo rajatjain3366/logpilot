@@ -23,7 +23,7 @@
 
 import ts from "typescript";
 import type { Confidence, Finding, Severity } from "../types.js";
-import { findComments, findMentions, getCatchVariableName, getLines, isPropertyName, isWrapper } from "./shared.js";
+import { findComments, findMentions, firstCallee, getCatchVariableName, getLines, isPropertyName, isWrapper, patternOf } from "./shared.js";
 
 export const RULE_ID = "LP001";
 export const RULE_NAME = "empty-catch";
@@ -31,7 +31,11 @@ export const RULE_NAME = "empty-catch";
  * The version of this rule's behaviour, shown in JSON output. Increase it whenever a change makes
  * the rule report different findings or levels, so tools can tell results of old and new versions apart.
  */
-export const RULE_VERSION = 2; // 2 (Milestone 2.5): comments lower confidence only; tool directives; more assertions
+// 2 (Milestone 2.5): comments lower confidence only; tool directives; more assertions.
+// 3 (v0.4.3): only the suggestion text changed (v0.4.2: neutral "<what failed>" examples, `err` and a
+//   rename hint for `_` names), counted as a version for consistency with LP003. Detection is
+//   unchanged since version 2, so version 2's measured precision still applies.
+export const RULE_VERSION = 3;
 
 /**
  * Test assertions that always fail by throwing, whatever their arguments. An empty catch around
@@ -134,9 +138,13 @@ function createFinding(catchClause: ts.CatchClause, sourceFile: ts.SourceFile, f
   let confidence: Confidence = "high";
   let explanation = EXPLANATION_EMPTY;
   let suggestion = buildSuggestion(catchClause);
+  // For the pattern (grouping in the report): which explanation this finding gets.
+  let theCase = "plain";
+  let comment = "none";
 
   const testFailureCall = findTestFailureCall(tryStatement.tryBlock);
   if (testFailureCall !== undefined) {
+    theCase = `test assertion ${testFailureCall}`;
     // A swallowed test assertion wins over everything else: a real bug in a test, comment or not.
     severity = "high";
     explanation =
@@ -158,11 +166,13 @@ function createFinding(catchClause: ts.CatchClause, sourceFile: ts.SourceFile, f
     if (commented) {
       confidence = "medium";
       explanation = commentInCatch ? EXPLANATION_COMMENT_ONLY : EXPLANATION_COMMENT_NEARBY;
+      comment = commentInCatch ? "in the catch" : "next to it";
     }
 
     // Best-effort work while another error, which is still passed on, is being handled.
     const outerError = findOuterErrorStillPassedOn(tryStatement, sourceFile);
     if (outerError !== undefined) {
+      theCase = "secondary failure";
       severity = "low";
       explanation =
         `This catch block is empty, but it runs while another error (\`${outerError.name}\`, caught on ` +
@@ -175,6 +185,7 @@ function createFinding(catchClause: ts.CatchClause, sourceFile: ts.SourceFile, f
     const guard = outerError !== undefined ? undefined : findExistenceGuard(tryStatement);
     if (guard !== undefined) {
       const guardLine = sourceFile.getLineAndCharacterOfPosition(guard.getStart(sourceFile)).line + 1;
+      theCase = "existence check";
       severity = "high";
       explanation =
         `This catch block is empty, and the check on line ${guardLine} already rules out the expected ` +
@@ -199,7 +210,35 @@ function createFinding(catchClause: ts.CatchClause, sourceFile: ts.SourceFile, f
     evidence: getLines(sourceFile, start.line, end.line),
     explanation,
     suggestion,
+    pattern: patternFor(catchClause, tryStatement.tryBlock, sourceFile, theCase, comment, severity, confidence),
   };
+}
+
+/**
+ * The finding's pattern: the same case, comment, levels and kind of catch variable give the same
+ * explanation and suggestion, and the first call in the try block (e.g. `localStorage.setItem`)
+ * tells what is being ignored. See patternOf.
+ */
+function patternFor(
+  catchClause: ts.CatchClause,
+  tryBlock: ts.Block,
+  sourceFile: ts.SourceFile,
+  theCase: string,
+  comment: string,
+  severity: Severity,
+  confidence: Confidence,
+) {
+  const variableName = getCatchVariableName(catchClause);
+  const variable = variableName === undefined ? "none" : variableName.startsWith("_") ? "underscore" : "named";
+  const callee = firstCallee(tryBlock, sourceFile);
+  const label = [
+    "empty catch",
+    callee === undefined ? "" : ` around ${callee}(...)`,
+    theCase === "plain" ? "" : `, ${theCase}`,
+    comment === "none" ? "" : `, with a comment ${comment}`,
+    variable === "none" ? ", no catch variable" : variable === "underscore" ? ", catch variable starts with _" : "",
+  ].join("");
+  return patternOf(RULE_ID, [theCase, comment, severity, confidence, variable, callee ?? ""], label);
 }
 
 /**

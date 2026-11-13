@@ -1,6 +1,8 @@
 // Helpers used by more than one rule. They only read the syntax tree; nothing here touches the disk.
 
+import { createHash } from "node:crypto";
 import ts from "typescript";
+import type { FindingPattern } from "../types.js";
 
 /** Evidence is cut off after this many lines so the report stays readable. */
 const MAX_EVIDENCE_LINES = 5;
@@ -105,6 +107,42 @@ export function isWrapper(
     ts.isTypeAssertionExpression(node) ||
     ts.isSatisfiesExpression(node)
   );
+}
+
+/**
+ * A finding's pattern (for grouping repeated findings in the report). `parts` must hold
+ * everything that decides the finding's explanation and suggestion apart from names, messages
+ * and line numbers: its case, levels and code shape. Then one explanation fits every finding of
+ * the pattern. The ID is the rule ID plus the first 8 hex digits of a SHA-256 hash of the parts,
+ * so it is the same on every run and every OS.
+ */
+export function patternOf(ruleId: string, parts: readonly string[], label: string): FindingPattern {
+  const hash = createHash("sha256").update(JSON.stringify([ruleId, ...parts])).digest("hex").slice(0, 8);
+  return { id: `${ruleId}-${hash}`, label };
+}
+
+/** The code of a node with all whitespace removed, so line breaks and indentation never matter. */
+export function compactText(node: ts.Node, sourceFile: ts.SourceFile): string {
+  return node.getText(sourceFile).replace(/\s+/g, "");
+}
+
+/**
+ * What the first function call in a block calls, e.g. "localStorage.setItem" for
+ * `try { localStorage.setItem("theme", t); }`; undefined if the block calls nothing. Calls inside
+ * nested functions are skipped: they do not run as part of the block.
+ */
+export function firstCallee(block: ts.Block, sourceFile: ts.SourceFile): string | undefined {
+  let callee: string | undefined;
+  const visit = (node: ts.Node): void => {
+    if (callee !== undefined || ts.isFunctionLike(node)) return;
+    if (ts.isCallExpression(node)) {
+      callee = compactText(node.expression, sourceFile);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(block, visit);
+  return callee;
 }
 
 /** Returns the full text of lines firstLine..lastLine (0-based), at most MAX_EVIDENCE_LINES of them. */

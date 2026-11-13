@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { enabledRuleIds, KNOWN_RULE_IDS } from "./analyze.js";
 import { type Config, ConfigError, findConfigFile, loadConfig } from "./config.js";
 import { checkExcludePattern } from "./file-selection.js";
 import { unsupportedNodeVersion } from "./node-version.js";
@@ -41,6 +42,8 @@ Scan options:
   --no-config              Do not use any config file
   --exclude <pattern>      Do not scan matching files or folders, e.g. "docs/**" (can be repeated;
                            adds to "exclude" in the config file)
+  --enable <rule>          Turn on a rule that is off by default, e.g. --enable LP001 (can be
+                           repeated; wins over "rules" in the config file)
   --show-skipped           List every file and folder that was not scanned, and why
   --no-default-excludes    Also scan build output, third-party folders, minified and vendored files
                            (node_modules and .git are never scanned)
@@ -51,8 +54,11 @@ Scan options:
   --output <file>          Write the report to this file instead of the terminal
   --fix-preview            Show a proposed fix (a diff) under each LP003 finding. A preview only:
                            LogPilot never changes your files
-  --verbose                Repeat the full explanation for every finding (by default, later
-                           findings of the same kind refer back to the first one)
+  --verbose                Show every finding in full (by default, findings with the same pattern
+                           are listed under the first one, and later findings of the same kind
+                           refer back to the first one)
+
+Rules: LP001 empty-catch (off by default), LP002 lost-error-cause, LP003 unlogged-error-response.
 
 Exit codes:
   0  the scan finished, and no finding is at or above --fail-on (by default: always)
@@ -92,6 +98,7 @@ function main(args: string[]): number {
         config: { type: "string" },
         "no-config": { type: "boolean" },
         exclude: { type: "string", multiple: true },
+        enable: { type: "string", multiple: true },
         "min-severity": { type: "string" },
         "fail-on": { type: "string" },
         format: { type: "string" },
@@ -142,6 +149,10 @@ function main(args: string[]): number {
     const problem = checkExcludePattern(pattern);
     if (problem !== undefined) return usageError(`--exclude "${pattern}": ${problem}`);
   }
+  const cliEnable = parsed.values.enable ?? [];
+  for (const id of cliEnable) {
+    if (!KNOWN_RULE_IDS.includes(id)) return usageError(`--enable "${id}": unknown rule (known rules: ${KNOWN_RULE_IDS.join(", ")})`);
+  }
   const cliMinSeverity = parsed.values["min-severity"];
   if (cliMinSeverity !== undefined && !isSeverity(cliMinSeverity)) {
     return usageError(`--min-severity must be one of ${SEVERITIES.join(", ")} (got "${cliMinSeverity}")`);
@@ -191,6 +202,13 @@ function main(args: string[]): number {
     process.stderr.write(`Error: ${levelProblem}\n`);
     return EXIT_TOOL_ERROR;
   }
+  // Which rules run: the defaults, then the config file's "rules", then --enable.
+  const configRules = config?.rules ?? {};
+  const enabledRules = enabledRuleIds(configRules, cliEnable);
+  // Rules that are off only because nobody turned them on: the summary says so, with how to turn them on.
+  const offByDefault = RULES.filter((rule) => !rule.defaultEnabled && !enabledRules.has(rule.id) && configRules[rule.id] === undefined).map(
+    (rule) => ({ id: rule.id, name: rule.name, reason: rule.offByDefaultReason ?? "" }),
+  );
 
   let result;
   try {
@@ -201,6 +219,7 @@ function main(args: string[]): number {
       // Patterns are relative to the config file's folder; without one, to the scanned folder.
       excludeRoot: configFile === undefined ? undefined : path.dirname(configFile),
       fixPreview,
+      enabledRules,
     });
   } catch (error) {
     process.stderr.write(`Error: ${(error as Error).message}\n`);
@@ -219,7 +238,7 @@ function main(args: string[]): number {
     // Warnings are inside the JSON, so stdout (or the --output file) is the only thing to read.
     report = formatJson(result, {
       toolVersion: readVersion(),
-      rules: RULES.map((rule) => ({ id: rule.id, name: rule.name, version: rule.version })),
+      rules: RULES.map((rule) => ({ id: rule.id, name: rule.name, version: rule.version, enabled: enabledRules.has(rule.id) })),
       config: {
         file: shownConfigFile ?? null,
         defaultExcludes: parsed.values["no-default-excludes"] ? false : (config?.defaultExcludes ?? true),
@@ -246,6 +265,7 @@ function main(args: string[]): number {
         hiddenBelowMinSeverity: result.findings.length - shown.length,
         minSeverity,
         fixPreview,
+        offByDefault,
         verbose: parsed.values.verbose === true,
         // In a terminal, wrap at its width (so words are not cut in the middle); otherwise at 100.
         width: reportWidth(process.stdout, output !== undefined),

@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { checkSourceFile, findSyntaxErrors, parseSource } from "./analyze.js";
+import { checkSourceFile, DEFAULT_ENABLED_RULE_IDS, findSyntaxErrors, parseSource } from "./analyze.js";
 import { ExcludePatterns, fileSkipByContent, fileSkipByName, folderSkip } from "./file-selection.js";
 import { attachFixPreviews } from "./fixes.js";
 import { findExpressHandlers } from "./rules/express.js";
@@ -38,6 +38,8 @@ export interface ScanOptions {
   excludeRoot?: string;
   /** Attach a proposed fix (or the reason there is none) to each finding. Never applied. Default: false. */
   fixPreview?: boolean;
+  /** The rules that run (see enabledRuleIds in analyze.ts). Default: the rules that are on by default. */
+  enabledRules?: ReadonlySet<string>;
 }
 
 /**
@@ -124,7 +126,7 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
           "findings in this file may be incomplete",
       });
     }
-    const { kept, suppressed, warnings } = checkSourceFile(sourceFile, displayPath);
+    const { kept, suppressed, warnings } = checkSourceFile(sourceFile, displayPath, options.enabledRules ?? DEFAULT_ENABLED_RULE_IDS);
     // Only to tell the user when LP003 had nothing to check (it looks at Express handlers only).
     if (findExpressHandlers(sourceFile).length > 0) result.filesWithExpressHandlers++;
     if (options.fixPreview) {

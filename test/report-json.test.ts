@@ -44,8 +44,8 @@ const result: ScanResult = {
 const context: JsonReportContext = {
   toolVersion: "9.9.9",
   rules: [
-    { id: "LP001", name: "empty-catch", version: 1 },
-    { id: "LP002", name: "lost-error-cause", version: 3 },
+    { id: "LP001", name: "empty-catch", version: 1, enabled: true },
+    { id: "LP002", name: "lost-error-cause", version: 3, enabled: false },
   ],
   config: { file: null, defaultExcludes: true, exclude: ["docs/**"], minSeverity: "low", failOn: "none", fixPreview: false },
   shown: result.findings,
@@ -78,12 +78,22 @@ describe("formatJson (schema version 3)", () => {
     // CHANGED ON PURPOSE (v0.4.2): schema version 3: paths are relative to the scanned folder.
     expect(report.schemaVersion).toBe(3);
     expect(report.tool).toEqual({ name: "logpilot", version: "9.9.9" });
+    // CHANGED ON PURPOSE (v0.4.3): `enabled` added to each rule.
     expect(report.rules).toEqual([
-      { id: "LP001", name: "empty-catch", version: 1 },
-      { id: "LP002", name: "lost-error-cause", version: 3 },
+      { id: "LP001", name: "empty-catch", version: 1, enabled: true },
+      { id: "LP002", name: "lost-error-cause", version: 3, enabled: false },
     ]);
     // CHANGED ON PURPOSE (Milestone 3, schema version 2): config.fixPreview added.
-    expect(report.config).toEqual({ file: null, defaultExcludes: true, exclude: ["docs/**"], minSeverity: "low", failOn: "none", fixPreview: false });
+    // CHANGED ON PURPOSE (v0.4.3): config.rules added (every rule, "on" or "off").
+    expect(report.config).toEqual({
+      file: null,
+      defaultExcludes: true,
+      exclude: ["docs/**"],
+      minSeverity: "low",
+      failOn: "none",
+      fixPreview: false,
+      rules: { LP001: "on", LP002: "off" },
+    });
   });
 
   it("counts findings by rule and severity, listing rules and severities that have 0", () => {
@@ -93,6 +103,7 @@ describe("formatJson (schema version 3)", () => {
       filesScanned: 3,
       filesWithExpressHandlers: 2, // CHANGED ON PURPOSE (v0.4.2): key added (0 = LP003 had nothing to check)
       findings: 2,
+      patterns: 2, // CHANGED ON PURPOSE (v0.4.3): key added (the test findings have no pattern: 1 each)
       findingsByRule: { LP001: 2, LP002: 0 },
       findingsBySeverity: { high: 0, medium: 1, low: 1 },
       hiddenBelowMinSeverity: 0,
@@ -120,12 +131,28 @@ describe("formatJson (schema version 3)", () => {
       "evidence",
       "explanation",
       "suggestion",
+      "pattern", // CHANGED ON PURPOSE (v0.4.3)
       "fix", // CHANGED ON PURPOSE (Milestone 3, schema version 2)
     ]);
     expect(report.findings[0].fix).toBeNull();
+    expect(report.findings[0].pattern).toBeNull();
     expect(report.suppressed).toEqual([
-      { finding: { ...finding({ line: 20 }), fix: null }, reason: "the cache is optional", commentLine: 19 },
+      { finding: { ...finding({ line: 20 }), pattern: null, fix: null }, reason: "the cache is optional", commentLine: 19 },
     ]);
+  });
+
+  it("writes each finding's pattern ID, and counts distinct patterns in the summary (v0.4.3)", () => {
+    const shape = { id: "LP002-0123abcd", label: "throw new Error(...) without the caught error" };
+    const findings = [
+      finding({ line: 2, pattern: shape }),
+      finding({ line: 9, pattern: shape }),
+      finding({ line: 12, pattern: { id: "LP002-99999999", label: "other" } }),
+      finding({ ruleId: "LP003", line: 30 }), // no pattern: counts as its own
+    ];
+    const report = JSON.parse(formatJson({ ...result, findings }, { ...context, shown: findings }));
+
+    expect(report.findings.map((f: { pattern: string | null }) => f.pattern)).toEqual(["LP002-0123abcd", "LP002-0123abcd", "LP002-99999999", null]);
+    expect(report.summary.patterns).toBe(3);
   });
 
   it("writes missing optional values as null, so every object has the same keys", () => {
@@ -169,7 +196,7 @@ describe("formatJson: fix previews (schema version 2, Milestone 3)", () => {
   const fixResult: ScanResult = { ...result, findings: [withFix, withoutFix, lp001], suppressed: [] };
   const fixContext: JsonReportContext = {
     ...context,
-    rules: [...context.rules, { id: "LP003", name: "unlogged-error-response", version: 3 }],
+    rules: [...context.rules, { id: "LP003", name: "unlogged-error-response", version: 3, enabled: true }],
     config: { ...context.config, fixPreview: true },
     shown: fixResult.findings,
   };

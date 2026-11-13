@@ -14,7 +14,7 @@
 
 import ts from "typescript";
 import type { Confidence, Finding, Severity } from "../types.js";
-import { containsComment, findMentions, getCatchVariableName, getLines, isWrapper } from "./shared.js";
+import { containsComment, findMentions, getCatchVariableName, getLines, isWrapper, patternOf } from "./shared.js";
 
 export const RULE_ID = "LP002";
 export const RULE_NAME = "lost-error-cause";
@@ -170,7 +170,31 @@ function checkThrow(
     evidence: getLines(sourceFile, start.line, end.line),
     explanation: buildExplanation(outcome, name, newError, catchLine, signals),
     suggestion: buildSuggestion(newError, name, signals, sourceFile),
+    pattern: patternFor(outcome, newError, severity, confidence, signals),
   };
+}
+
+/**
+ * The finding's pattern: the same outcome, thrown class, levels and signals give the same
+ * explanation and suggestion (apart from names, messages and line numbers). See patternOf.
+ */
+function patternFor(outcome: Outcome, newError: NewError, severity: Severity, confidence: Confidence, signals: Signals) {
+  const className = newError.className.replace(/\s+/g, "");
+  const what = {
+    dropped: `throw new ${className}(...) without the caught error`,
+    partial: `throw new ${className}(...) that keeps only the caught error's text`,
+    "options-mistake": `new ${className}(..., caught error): the caught error is passed as options, not as the cause`,
+    kept: "", // never reported
+  }[outcome];
+  const notes = [
+    signals.noVariable ? "the catch has no variable" : "",
+    signals.underscore ? "the variable starts with _" : "",
+    signals.logged ? "logged before the throw" : "",
+    signals.commented ? "with a comment" : "",
+    signals.guarded ? "under a check of the error" : "",
+  ].filter((note) => note !== "");
+  const flags = Object.entries(signals).map(([signal, on]) => `${signal}=${on}`);
+  return patternOf(RULE_ID, [outcome, className, severity, confidence, ...flags], [what, ...notes].join(", "));
 }
 
 /** Decides whether the new error keeps the caught error (`name`), and if not, how it loses it. */

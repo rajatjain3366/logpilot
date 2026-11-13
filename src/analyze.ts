@@ -7,14 +7,56 @@ import * as lp001 from "./rules/lp001-empty-catch.js";
 import * as lp002 from "./rules/lp002-lost-error-cause.js";
 import * as lp003 from "./rules/lp003-unlogged-error-response.js";
 import { applySuppressions, type SuppressionResult } from "./suppressions.js";
+import type { Finding } from "./types.js";
 
-/** Every rule runs on every file. `version` changes when a rule's behaviour changes (see the rule files). */
-export const RULES = [
-  { id: lp001.RULE_ID, name: lp001.RULE_NAME, version: lp001.RULE_VERSION, check: lp001.checkEmptyCatch },
-  { id: lp002.RULE_ID, name: lp002.RULE_NAME, version: lp002.RULE_VERSION, check: lp002.checkLostErrorCause },
-  { id: lp003.RULE_ID, name: lp003.RULE_NAME, version: lp003.RULE_VERSION, check: lp003.checkUnloggedErrorResponse },
+/**
+ * Every rule LogPilot has. `version` changes when a rule's behaviour changes (see the rule files).
+ * `defaultEnabled`: whether the rule runs when neither the config file ("rules") nor --enable
+ * says otherwise. A rule that is off by default says why in `offByDefaultReason` (shown in the
+ * summary, so nobody mistakes "0 findings" for "checked and fine").
+ */
+export const RULES: {
+  id: string;
+  name: string;
+  version: number;
+  defaultEnabled: boolean;
+  offByDefaultReason?: string;
+  check: (sourceFile: ts.SourceFile, filePath: string) => Finding[];
+}[] = [
+  {
+    id: lp001.RULE_ID,
+    name: lp001.RULE_NAME,
+    version: lp001.RULE_VERSION,
+    // v0.4.3: on real projects, most empty catches were deliberate (held-out: 3 of 25 real problems;
+    // early testers: 0 of 6), so LP001 is opt-in. See docs/evaluation.md.
+    defaultEnabled: false,
+    offByDefaultReason: "most empty catches are deliberate",
+    check: lp001.checkEmptyCatch,
+  },
+  { id: lp002.RULE_ID, name: lp002.RULE_NAME, version: lp002.RULE_VERSION, defaultEnabled: true, check: lp002.checkLostErrorCause },
+  { id: lp003.RULE_ID, name: lp003.RULE_NAME, version: lp003.RULE_VERSION, defaultEnabled: true, check: lp003.checkUnloggedErrorResponse },
 ];
 export const KNOWN_RULE_IDS = RULES.map((rule) => rule.id);
+
+/** Every rule, on or off: what fix validation runs, so a fix can never create any finding. */
+export const ALL_RULE_IDS: ReadonlySet<string> = new Set(KNOWN_RULE_IDS);
+
+/** The rules that run when nothing turns a rule on or off. */
+export const DEFAULT_ENABLED_RULE_IDS: ReadonlySet<string> = new Set(RULES.filter((rule) => rule.defaultEnabled).map((rule) => rule.id));
+
+/**
+ * The rules that run: the defaults, then the config file's "rules" (`"on"`/`"off"`), then the
+ * --enable flags, which win over the config file like every command-line option.
+ */
+export function enabledRuleIds(configRules: Readonly<Record<string, "on" | "off">> = {}, enable: readonly string[] = []): Set<string> {
+  const enabled = new Set(DEFAULT_ENABLED_RULE_IDS);
+  for (const [id, value] of Object.entries(configRules)) {
+    if (value === "on") enabled.add(id);
+    else enabled.delete(id);
+  }
+  for (const id of enable) enabled.add(id);
+  return enabled;
+}
 
 /**
  * Turns source text into a syntax tree (AST). Read-only: it works on a string we already read.
@@ -53,11 +95,16 @@ export function findSyntaxErrors(sourceFile: ts.SourceFile): readonly ts.Diagnos
 }
 
 /**
- * Runs every rule on one parsed file and applies its suppression comments. Findings are listed
- * from top to bottom, whichever rule produced them (then by rule ID, so the order never changes).
+ * Runs the enabled rules on one parsed file and applies its suppression comments. Findings are
+ * listed from top to bottom, whichever rule produced them (then by rule ID, so the order never
+ * changes). Without `enabledRules`, every rule runs (fix validation relies on that).
  */
-export function checkSourceFile(sourceFile: ts.SourceFile, displayPath: string): SuppressionResult {
-  const findings = RULES.flatMap((rule) => rule.check(sourceFile, displayPath));
+export function checkSourceFile(
+  sourceFile: ts.SourceFile,
+  displayPath: string,
+  enabledRules: ReadonlySet<string> = ALL_RULE_IDS,
+): SuppressionResult {
+  const findings = RULES.filter((rule) => enabledRules.has(rule.id)).flatMap((rule) => rule.check(sourceFile, displayPath));
   findings.sort((a, b) => a.line - b.line || a.column - b.column || (a.ruleId < b.ruleId ? -1 : 1));
-  return applySuppressions(sourceFile, displayPath, findings, KNOWN_RULE_IDS);
+  return applySuppressions(sourceFile, displayPath, findings, KNOWN_RULE_IDS, enabledRules);
 }

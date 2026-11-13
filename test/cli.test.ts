@@ -90,11 +90,13 @@ describe("CLI: help, version and usage errors", () => {
 });
 
 // CHANGED ON PURPOSE (v0.4.2): the tests that scan this repository's own fixtures pass --no-config.
+// CHANGED ON PURPOSE (v0.4.3): they also pass --enable LP001 (off by default), so LP001 is still
+// checked end to end on the fixtures.
 // LogPilot's logpilot.config.json (at the repository root, so LogPilot can scan itself) excludes
 // test/fixtures/**, and these tests are about what the rules report, not about that config.
 describe("CLI: scan", () => {
   it("exits 0 with '0 findings' when the code handles its errors (all rules run)", () => {
-    const { exitCode, stdout, stderr } = runCli(["scan", "test/fixtures/negative", "--no-config"]);
+    const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", "test/fixtures/negative", "--no-config"]);
 
     expect(exitCode).toBe(0);
     // 7 files written for LP001 + 3 for LP002 + 1 for LP003 (added in Milestone 2.5); no rule may
@@ -104,20 +106,25 @@ describe("CLI: scan", () => {
   });
 
   it("prints every finding when there are problems, and exits 0 by default (warning-only)", () => {
-    const { exitCode, stdout, stderr } = runCli(["scan", "test/fixtures/positive", "--no-config"]);
+    const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", "test/fixtures/positive", "--no-config"]);
 
     // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none", so findings alone
     // exit 0. Exit code 1 with --fail-on is tested in "CLI: severity filtering and --fail-on".
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
     // CHANGED ON PURPOSE (v0.4.2): paths are relative to the scanned folder (was test/fixtures/positive/...).
-    expect(stdout).toContain("\nempty-catch.ts:9:5\n");
+    // CHANGED ON PURPOSE (v0.4.3): this finding has the same pattern as empty-catch-in-component.tsx:10,
+    // so it is listed (indented) under that one instead of being printed in full.
+    expect(stdout).toContain("\n    empty-catch.ts:9:5\n");
     expect(stdout).toContain("  LP001 empty-catch | severity: medium | confidence: high\n"); // the default
     expect(stdout).toContain("  LP001 empty-catch | severity: high | confidence: high\n"); // with positive evidence
     expect(stdout.startsWith("comment-only-catch.js:7:5\n")).toBe(true); // the first file, sorted by path
     // CHANGED ON PURPOSE (Milestone 2.5): a comment lowers only confidence (severity was "low").
     expect(stdout).toContain("  LP001 empty-catch | severity: medium | confidence: medium\n"); // comment-only (rule 1)
-    expect(stdout).toContain("    9 |   } catch (err) {}\n"); // gutter is as wide as the largest line number shown
+    // CHANGED ON PURPOSE (v0.4.3): checked in --verbose output, where every finding is shown in full.
+    const verbose = runCli(["scan", "--enable", "LP001", "test/fixtures/positive", "--no-config", "--verbose"]).stdout;
+    expect(verbose).toContain("\nempty-catch.ts:9:5\n");
+    expect(verbose).toContain("    9 |   } catch (err) {}\n"); // gutter is as wide as the largest line number shown
     expect(stdout).toContain("\nlp002-message-only.js:10:5\n");
     expect(stdout).toContain("  LP002 lost-error-cause | severity: medium | confidence: high\n");
     expect(stdout).toContain("  Why: ");
@@ -127,11 +134,12 @@ describe("CLI: scan", () => {
     // LP002: 4 (lost-cause) + 5 (message-only) + 2 (options-mistake) + 3 (no-binding) = 14
     // LP003: 8 (error-responses) + 3 (error-middleware) + 3 (response-helpers) = 14
     // (Milestone 2.5 added the tool-directives, test-assertion-more and 3 LP003 fixtures: 11 -> 16 files.)
-    expect(stdout.endsWith("Scanned 16 files, 67 findings (LP001: 39, LP002: 14, LP003: 14)\n")).toBe(true);
+    // CHANGED ON PURPOSE (v0.4.3): "in 49 patterns" (repeated patterns are listed under their first finding).
+    expect(stdout.endsWith("Scanned 16 files, 67 findings in 49 patterns (LP001: 39, LP002: 14, LP003: 14)\n")).toBe(true);
   });
 
   it("scans the whole fixtures folder (edge + negative + positive)", () => {
-    const { exitCode, stdout } = runCli(["scan", "test/fixtures", "--no-config"]);
+    const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "test/fixtures", "--no-config"]);
 
     // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none" (was 1 with findings).
     expect(exitCode).toBe(0);
@@ -147,11 +155,12 @@ describe("CLI: scan", () => {
     // (42 -> 52 files) and one LP003 finding per fixture (36 -> 43).
     // CHANGED ON PURPOSE (v0.4.1): fix/passwords/ adds 3 handler files (8 + 4 + 1 LP003 findings) and
     // 3 model modules (no findings): 52 -> 58 files, LP003 43 -> 56.
-    expect(stdout.endsWith("Scanned 58 files, 133 findings (LP001: 54, LP002: 23, LP003: 56)\n")).toBe(true);
+    // CHANGED ON PURPOSE (v0.4.3): "in 109 patterns" (11 patterns repeat; LP003 is never grouped).
+    expect(stdout.endsWith("Scanned 58 files, 133 findings in 109 patterns (LP001: 54, LP002: 23, LP003: 56)\n")).toBe(true);
   });
 
   it("scans a single file", () => {
-    const { exitCode, stdout } = runCli(["scan", "test/fixtures/positive/empty-catch.ts", "--no-config"]);
+    const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "test/fixtures/positive/empty-catch.ts", "--no-config"]);
 
     // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none" (was 1 with findings).
     expect(exitCode).toBe(0);
@@ -164,14 +173,14 @@ describe("CLI: scan", () => {
   });
 
   it("scans the current folder when no path is given", () => {
-    const { exitCode, stdout } = runCli(["scan", "--no-config"], path.join(fixturesDir, "negative"));
+    const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "--no-config"], path.join(fixturesDir, "negative"));
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe("Scanned 11 files, 0 findings\n"); // 10 + LP003's negative fixture (Milestone 2.5)
   });
 
   it("exits 2 with a clear error when the path does not exist", () => {
-    const { exitCode, stdout, stderr } = runCli(["scan", "does-not-exist"]);
+    const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", "does-not-exist"]);
 
     expect(exitCode).toBe(2);
     expect(stdout).toBe("");
@@ -182,7 +191,7 @@ describe("CLI: scan", () => {
     const before = fingerprintFolder(fixturesDir);
     // CHANGED ON PURPOSE (Milestone 2): findings alone now exit 0, so "--fail-on low" is passed to
     // keep using exit code 1 as proof that the scan really ran and found the positives.
-    const { exitCode } = runCli(["scan", "test/fixtures", "--no-config", "--fail-on", "low"]);
+    const { exitCode } = runCli(["scan", "--enable", "LP001", "test/fixtures", "--no-config", "--fail-on", "low"]);
     const after = fingerprintFolder(fixturesDir);
 
     expect(exitCode).toBe(1); // the scan really ran and found the positives
@@ -195,7 +204,7 @@ describe("CLI: scan", () => {
 
   it("does not create, delete or modify any file with --fix-preview either (fixes are only shown)", () => {
     const before = fingerprintFolder(fixturesDir);
-    const { exitCode, stdout } = runCli(["scan", "test/fixtures", "--no-config", "--fix-preview", "--fail-on", "low"]);
+    const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "test/fixtures", "--no-config", "--fix-preview", "--fail-on", "low"]);
     const after = fingerprintFolder(fixturesDir);
 
     expect(exitCode).toBe(1);
@@ -225,12 +234,14 @@ function withProject(files: Record<string, string>, body: (dir: string) => void)
   }
 }
 
+// CHANGED ON PURPOSE (v0.4.3): LP001 is off by default; these tests use empty catches (LP001) as
+// findings to check other behaviour, so their scans pass --enable LP001.
 describe("CLI: what was not scanned (Milestone 2)", () => {
   const files = { "src/app.js": EMPTY_CATCH, "node_modules/lib/index.js": EMPTY_CATCH, "build/out.js": EMPTY_CATCH };
 
   it("says in the summary how much was not scanned, and why", () => {
     withProject(files, (dir) => {
-      const { stdout } = runCli(["scan", "."], dir);
+      const { stdout } = runCli(["scan", "--enable", "LP001", "."], dir);
 
       expect(stdout).toContain("Scanned 1 file, 1 finding (LP001: 1)\n");
       expect(stdout).toContain(
@@ -241,7 +252,7 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
 
   it("--show-skipped lists every skipped folder with its reason", () => {
     withProject(files, (dir) => {
-      const { stdout, stderr } = runCli(["scan", ".", "--show-skipped"], dir);
+      const { stdout, stderr } = runCli(["scan", "--enable", "LP001", ".", "--show-skipped"], dir);
 
       expect(stderr).toBe("");
       expect(stdout.endsWith(
@@ -264,7 +275,7 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
 
   it("prints a syntax-error warning to stderr, without changing the exit code", () => {
     withProject({ "broken.js": "let x = ;\n" }, (dir) => {
-      const { exitCode, stdout, stderr } = runCli(["scan", "."], dir);
+      const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", "."], dir);
 
       expect(exitCode).toBe(0); // no findings: a syntax error alone does not fail the scan
       expect(stderr).toBe(
@@ -281,21 +292,23 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
 
   it("uses logpilot.config.json from the scanned folder, and says so in the summary", () => {
     withProject({ ...files, "logpilot.config.json": '{ "defaultExcludes": false }' }, (dir) => {
-      const { stdout } = runCli(["scan", "."], dir);
+      const { stdout } = runCli(["scan", "--enable", "LP001", "."], dir);
 
-      expect(stdout).toContain("Scanned 2 files, 2 findings (LP001: 2)\n"); // build/ is scanned now
+      // CHANGED ON PURPOSE (v0.4.3): the two identical empty catches are one pattern.
+      expect(stdout).toContain("Scanned 2 files, 2 findings in 1 pattern (LP001: 2)\n"); // build/ is scanned now
       expect(stdout).toContain("Config file: logpilot.config.json\n");
     });
   });
 
   it("stops with exit code 2 and a clear message when the config file is invalid", () => {
     withProject({ ...files, "logpilot.config.json": '{ "excludes": ["docs/**"] }' }, (dir) => {
-      const { exitCode, stdout, stderr } = runCli(["scan", "."], dir);
+      const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", "."], dir);
 
       expect(exitCode).toBe(2);
       expect(stdout).toBe("");
+      // CHANGED ON PURPOSE (v0.4.3): "rules" is a known setting now.
       expect(stderr).toBe(
-        'Error: logpilot.config.json: unknown setting "excludes" (known settings: exclude, defaultExcludes, minSeverity, failOn)\n',
+        'Error: logpilot.config.json: unknown setting "excludes" (known settings: exclude, defaultExcludes, minSeverity, failOn, rules)\n',
       );
     });
   });
@@ -304,19 +317,19 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
     withProject({ ...files, "logpilot.config.json": "{ broken", "settings/strict.json": '{ "defaultExcludes": false }' }, (dir) => {
       // EXIT CODES CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none", so these scans with
       // findings exit 0 (was 1). What matters here is that they are not 2, the code for a broken config.
-      const withConfig = runCli(["scan", ".", "--config", "settings/strict.json"], dir);
+      const withConfig = runCli(["scan", "--enable", "LP001", ".", "--config", "settings/strict.json"], dir);
       expect(withConfig.exitCode).toBe(0);
       expect(withConfig.stdout).toContain("Config file: settings/strict.json\n");
 
-      const noConfig = runCli(["scan", ".", "--no-config"], dir);
+      const noConfig = runCli(["scan", "--enable", "LP001", ".", "--no-config"], dir);
       expect(noConfig.exitCode).toBe(0); // the broken logpilot.config.json was not read
       expect(noConfig.stdout).not.toContain("Config file:");
 
-      const missing = runCli(["scan", ".", "--config", "nope.json"], dir);
+      const missing = runCli(["scan", "--enable", "LP001", ".", "--config", "nope.json"], dir);
       expect(missing.exitCode).toBe(2);
       expect(missing.stderr).toBe('Error: config file "nope.json" does not exist\n');
 
-      const both = runCli(["scan", ".", "--config", "settings/strict.json", "--no-config"], dir);
+      const both = runCli(["scan", "--enable", "LP001", ".", "--config", "settings/strict.json", "--no-config"], dir);
       expect(both.exitCode).toBe(2);
       expect(both.stderr).toContain("use either --config or --no-config, not both");
     });
@@ -332,7 +345,7 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
     };
     withProject(project, (dir) => {
       // Scanning a subfolder: the config file at the repository root still applies, relative to its own folder.
-      const { stdout, stderr } = runCli(["scan", "packages/web", "--exclude", "packages/web/scripts/**"], dir);
+      const { stdout, stderr } = runCli(["scan", "--enable", "LP001", "packages/web", "--exclude", "packages/web/scripts/**"], dir);
 
       expect(stderr).toBe("");
       expect(stdout).toContain("Scanned 1 file, 1 finding (LP001: 1)\n");
@@ -346,10 +359,10 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
 
   it("warns about an exclude pattern that matched nothing, and rejects an invalid one with exit code 2", () => {
     withProject(files, (dir) => {
-      const unused = runCli(["scan", ".", "--exclude", "doc/**"], dir);
+      const unused = runCli(["scan", "--enable", "LP001", ".", "--exclude", "doc/**"], dir);
       expect(unused.stderr).toBe('Warning: exclude pattern "doc/**" matched nothing (patterns are relative to .); check the spelling\n');
 
-      const invalid = runCli(["scan", ".", "--exclude", "!src/app.js"], dir);
+      const invalid = runCli(["scan", "--enable", "LP001", ".", "--exclude", "!src/app.js"], dir);
       expect(invalid.exitCode).toBe(2);
       expect(invalid.stdout).toBe("");
       expect(invalid.stderr).toContain('Error: --exclude "!src/app.js": patterns that start with "!" (exceptions) are not supported');
@@ -358,7 +371,7 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
 
   it("ignores a stray config file above the repository root", () => {
     withProject({ "logpilot.config.json": "{ broken", "repo/.git/HEAD": "ref: refs/heads/main\n", "repo/src/app.js": EMPTY_CATCH }, (dir) => {
-      const { exitCode, stdout } = runCli(["scan", "."], path.join(dir, "repo"));
+      const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "."], path.join(dir, "repo"));
 
       // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none" (was 1 with findings).
       // It must not be 2, which would mean the broken file above the repository was read.
@@ -377,7 +390,7 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
       "catch {}",
     ].join("\n");
     withProject({ "src/cache.js": code }, (dir) => {
-      const { stdout, stderr } = runCli(["scan", "."], dir);
+      const { stdout, stderr } = runCli(["scan", "--enable", "LP001", "."], dir);
 
       expect(stdout).toContain("Scanned 1 file, 1 finding (LP001: 1)\n1 finding was suppressed by logpilot-ignore comments.\n");
       expect(stdout).toContain("src/cache.js:6:1\n"); // the one without a reason is still reported
@@ -389,14 +402,17 @@ describe("CLI: what was not scanned (Milestone 2)", () => {
 
   it("--no-default-excludes scans build output and minified files, but never node_modules", () => {
     withProject({ ...files, "public/app.min.js": EMPTY_CATCH }, (dir) => {
-      const { stdout } = runCli(["scan", ".", "--no-default-excludes"], dir);
+      const { stdout } = runCli(["scan", "--enable", "LP001", ".", "--no-default-excludes"], dir);
 
-      expect(stdout).toContain("Scanned 3 files, 3 findings (LP001: 3)\n");
+      // CHANGED ON PURPOSE (v0.4.3): the three identical empty catches are one pattern.
+      expect(stdout).toContain("Scanned 3 files, 3 findings in 1 pattern (LP001: 3)\n");
       expect(stdout).toContain("Not scanned: 1 folder (default folders: 1).");
     });
   });
 });
 
+// CHANGED ON PURPOSE (v0.4.3): LP001 is off by default; these tests use empty catches (LP001) as
+// findings to check other behaviour, so their scans pass --enable LP001.
 describe("CLI: severity filtering and --fail-on (Milestone 2)", () => {
   // One finding of each severity: medium (plain empty catch), low (inside a catch whose error is
   // rethrown), high (an existence check runs before the try).
@@ -412,7 +428,7 @@ describe("CLI: severity filtering and --fail-on (Milestone 2)", () => {
 
   it("shows every severity and exits 0 by default (warning-only)", () => {
     withProject(project, (dir) => {
-      const { exitCode, stdout } = runCli(["scan", "levels.js"], dir);
+      const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "levels.js"], dir);
 
       expect(exitCode).toBe(0);
       expect(stdout).toContain("Scanned 1 file, 3 findings (LP001: 3)\n");
@@ -421,12 +437,12 @@ describe("CLI: severity filtering and --fail-on (Milestone 2)", () => {
 
   it("--min-severity hides lower findings and says how many", () => {
     withProject(project, (dir) => {
-      const medium = runCli(["scan", "levels.js", "--min-severity", "medium"], dir);
+      const medium = runCli(["scan", "--enable", "LP001", "levels.js", "--min-severity", "medium"], dir);
       expect(medium.stdout).toContain("Scanned 1 file, 2 findings (LP001: 2)\n");
       expect(medium.stdout).toContain("1 finding below medium severity is not shown (--min-severity).\n");
       expect(medium.stdout).not.toContain("levels.js:3:");
 
-      const high = runCli(["scan", "levels.js", "--min-severity", "high"], dir);
+      const high = runCli(["scan", "--enable", "LP001", "levels.js", "--min-severity", "high"], dir);
       expect(high.stdout).toContain("Scanned 1 file, 1 finding (LP001: 1)\n");
       expect(high.stdout).toContain("2 findings below high severity are not shown (--min-severity).\n");
     });
@@ -434,21 +450,21 @@ describe("CLI: severity filtering and --fail-on (Milestone 2)", () => {
 
   it("--fail-on exits 1 only when a finding is at or above the level", () => {
     withProject(project, (dir) => {
-      expect(runCli(["scan", "levels.js", "--fail-on", "high"], dir).exitCode).toBe(1);
-      expect(runCli(["scan", "medium-only.js", "--fail-on", "high"], dir).exitCode).toBe(0);
-      expect(runCli(["scan", "medium-only.js", "--fail-on", "medium"], dir).exitCode).toBe(1);
-      expect(runCli(["scan", "medium-only.js", "--fail-on", "none"], dir).exitCode).toBe(0);
+      expect(runCli(["scan", "--enable", "LP001", "levels.js", "--fail-on", "high"], dir).exitCode).toBe(1);
+      expect(runCli(["scan", "--enable", "LP001", "medium-only.js", "--fail-on", "high"], dir).exitCode).toBe(0);
+      expect(runCli(["scan", "--enable", "LP001", "medium-only.js", "--fail-on", "medium"], dir).exitCode).toBe(1);
+      expect(runCli(["scan", "--enable", "LP001", "medium-only.js", "--fail-on", "none"], dir).exitCode).toBe(0);
     });
   });
 
   it("refuses to fail on findings it does not show, and rejects unknown levels (exit code 2)", () => {
     withProject(project, (dir) => {
-      const hidden = runCli(["scan", ".", "--min-severity", "high", "--fail-on", "medium"], dir);
+      const hidden = runCli(["scan", "--enable", "LP001", ".", "--min-severity", "high", "--fail-on", "medium"], dir);
       expect(hidden.exitCode).toBe(2);
       expect(hidden.stdout).toBe("");
       expect(hidden.stderr).toContain('Error: fail-on "medium" is below min-severity "high"');
 
-      const unknown = runCli(["scan", ".", "--fail-on", "always"], dir);
+      const unknown = runCli(["scan", "--enable", "LP001", ".", "--fail-on", "always"], dir);
       expect(unknown.exitCode).toBe(2);
       expect(unknown.stderr).toContain('--fail-on must be one of none, low, medium, high (got "always")');
     });
@@ -456,11 +472,11 @@ describe("CLI: severity filtering and --fail-on (Milestone 2)", () => {
 
   it("reads minSeverity and failOn from the config file; command-line options win", () => {
     withProject({ ...project, "logpilot.config.json": '{ "minSeverity": "medium", "failOn": "high" }' }, (dir) => {
-      const fromConfig = runCli(["scan", "levels.js"], dir);
+      const fromConfig = runCli(["scan", "--enable", "LP001", "levels.js"], dir);
       expect(fromConfig.exitCode).toBe(1); // a high finding, failOn "high"
       expect(fromConfig.stdout).toContain("1 finding below medium severity is not shown");
 
-      const overridden = runCli(["scan", "levels.js", "--fail-on", "none", "--min-severity", "low"], dir);
+      const overridden = runCli(["scan", "--enable", "LP001", "levels.js", "--fail-on", "none", "--min-severity", "low"], dir);
       expect(overridden.exitCode).toBe(0);
       expect(overridden.stdout).toContain("Scanned 1 file, 3 findings (LP001: 3)\n");
     });
@@ -475,6 +491,8 @@ describe("CLI: severity filtering and --fail-on (Milestone 2)", () => {
   });
 });
 
+// CHANGED ON PURPOSE (v0.4.3): LP001 is off by default; these tests use empty catches (LP001) as
+// findings to check other behaviour, so their scans pass --enable LP001.
 describe("CLI: JSON output and --output (Milestone 2)", () => {
   const project = {
     "src/app.js": EMPTY_CATCH,
@@ -485,7 +503,7 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
 
   it("prints only JSON on stdout: warnings go into the JSON, not to stderr", () => {
     withProject(project, (dir) => {
-      const { exitCode, stdout, stderr } = runCli(["scan", ".", "--format", "json"], dir);
+      const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", ".", "--format", "json"], dir);
 
       expect(exitCode).toBe(0);
       expect(stderr).toBe(""); // the syntax-error warning is in the JSON instead
@@ -498,11 +516,14 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 case E severity went from medium to low: version 1 -> 2.
       // CHANGED ON PURPOSE (Milestone 3): LP003's suggestion logs req.method and req.route?.path instead
       // of req.path: version 2 -> 3.
+      // CHANGED ON PURPOSE (v0.4.3): LP001's suggestion text changed in v0.4.2: version 2 -> 3
+      // (detection unchanged). Each rule now says whether it ran (`enabled`).
       expect(report.rules).toEqual([
-        { id: "LP001", name: "empty-catch", version: 2 },
-        { id: "LP002", name: "lost-error-cause", version: 1 },
-        { id: "LP003", name: "unlogged-error-response", version: 3 },
+        { id: "LP001", name: "empty-catch", version: 3, enabled: true }, // --enable LP001
+        { id: "LP002", name: "lost-error-cause", version: 1, enabled: true },
+        { id: "LP003", name: "unlogged-error-response", version: 3, enabled: true },
       ]);
+      expect(report.config.rules).toEqual({ LP001: "on", LP002: "on", LP003: "on" });
       expect(report.summary.filesScanned).toBe(3);
       expect(report.findings.map((f: { file: string; line: number }) => `${f.file}:${f.line}`)).toEqual(["src/app.js:1"]);
       expect(report.suppressed[0].reason).toBe("the cache is optional");
@@ -514,8 +535,8 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
 
   it("gives byte-identical JSON on every run", () => {
     withProject(project, (dir) => {
-      const first = runCli(["scan", ".", "--format", "json"], dir).stdout;
-      const second = runCli(["scan", ".", "--format", "json"], dir).stdout;
+      const first = runCli(["scan", "--enable", "LP001", ".", "--format", "json"], dir).stdout;
+      const second = runCli(["scan", "--enable", "LP001", ".", "--format", "json"], dir).stdout;
 
       expect(first.length).toBeGreaterThan(0);
       expect(second).toBe(first);
@@ -524,13 +545,13 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
 
   it("applies --min-severity and --fail-on, and records the exit code in the summary", () => {
     withProject(project, (dir) => {
-      const { exitCode, stdout } = runCli(["scan", ".", "--format", "json", "--fail-on", "medium"], dir);
+      const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", ".", "--format", "json", "--fail-on", "medium"], dir);
 
       expect(exitCode).toBe(1);
       expect(JSON.parse(stdout).summary.exitCode).toBe(1);
       expect(JSON.parse(stdout).config.failOn).toBe("medium");
 
-      const high = JSON.parse(runCli(["scan", ".", "--format", "json", "--min-severity", "high"], dir).stdout);
+      const high = JSON.parse(runCli(["scan", "--enable", "LP001", ".", "--format", "json", "--min-severity", "high"], dir).stdout);
       expect(high.findings).toEqual([]);
       expect(high.summary.hiddenBelowMinSeverity).toBe(1);
     });
@@ -538,8 +559,8 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
 
   it("--output writes the report to a file and prints nothing", () => {
     withProject(project, (dir) => {
-      const expected = runCli(["scan", ".", "--format", "json"], dir).stdout;
-      const { exitCode, stdout, stderr } = runCli(["scan", ".", "--format", "json", "--output", "report.json"], dir);
+      const expected = runCli(["scan", "--enable", "LP001", ".", "--format", "json"], dir).stdout;
+      const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", ".", "--format", "json", "--output", "report.json"], dir);
 
       expect(exitCode).toBe(0);
       expect(stdout).toBe("");
@@ -547,7 +568,7 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
       expect(readFileSync(path.join(dir, "report.json"), "utf8")).toBe(expected);
 
       // Text reports can be written to a file too; warnings still go to the screen (stderr).
-      const text = runCli(["scan", ".", "--output", "report.txt"], dir);
+      const text = runCli(["scan", "--enable", "LP001", ".", "--output", "report.txt"], dir);
       expect(text.stdout).toBe("");
       expect(text.stderr).toContain("Warning: src/broken.js: 1 syntax error");
       expect(readFileSync(path.join(dir, "report.txt"), "utf8")).toContain("Scanned 3 files, 1 finding (LP001: 1)\n");
@@ -557,7 +578,7 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
   it("refuses to write the report into a JavaScript or TypeScript file (exit code 2)", () => {
     withProject(project, (dir) => {
       for (const target of ["src/app.js", "src/new.ts", "src/App.TSX"]) {
-        const { exitCode, stdout, stderr } = runCli(["scan", ".", "--output", target], dir);
+        const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", ".", "--output", target], dir);
         expect(exitCode).toBe(2);
         expect(stdout).toBe("");
         expect(stderr).toContain(`--output "${target}": refusing to write a report into a JavaScript or TypeScript file`);
@@ -569,11 +590,11 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
 
   it("rejects an unknown --format, and reports a file it cannot write (exit code 2)", () => {
     withProject(project, (dir) => {
-      const xml = runCli(["scan", ".", "--format", "xml"], dir);
+      const xml = runCli(["scan", "--enable", "LP001", ".", "--format", "xml"], dir);
       expect(xml.exitCode).toBe(2);
       expect(xml.stderr).toContain('--format must be text or json (got "xml")');
 
-      const noFolder = runCli(["scan", ".", "--output", "missing-folder/report.json"], dir);
+      const noFolder = runCli(["scan", "--enable", "LP001", ".", "--output", "missing-folder/report.json"], dir);
       expect(noFolder.exitCode).toBe(2);
       expect(noFolder.stderr).toContain('Error: could not write the report to "missing-folder/report.json"');
     });
@@ -683,6 +704,8 @@ describe("CLI: --fix-preview (Milestone 3)", () => {
 
 // v0.4.2: three early testers saw paths relative to the folder LogPilot was run from, which broke
 // on another drive (D:/... in the report, "a/D:/..." in diff headers) and with "../..".
+// CHANGED ON PURPOSE (v0.4.3): LP001 is off by default; these tests use empty catches (LP001) as
+// findings to check other behaviour, so their scans pass --enable LP001.
 describe("CLI: every path is relative to the scanned folder (v0.4.2)", () => {
   const ROUTE = [
     'const express = require("express");',
@@ -701,7 +724,7 @@ describe("CLI: every path is relative to the scanned folder (v0.4.2)", () => {
 
   /** The text report (stdout) of `scan <target> --fix-preview`, run from `cwd`. */
   function textReport(target: string, cwd: string): string {
-    const { exitCode, stdout, stderr } = runCli(["scan", target, "--fix-preview", "--no-config"], cwd);
+    const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", target, "--fix-preview", "--no-config"], cwd);
     expect([exitCode, stderr]).toEqual([0, ""]);
     return stdout;
   }
@@ -752,7 +775,7 @@ describe("CLI: every path is relative to the scanned folder (v0.4.2)", () => {
   it("writes the same relative paths in JSON, and its diffs apply with git apply in the scanned folder", () => {
     withProject(files, (dir) => {
       const project = path.join(dir, "my project");
-      const { stdout } = runCli(["scan", project, "--fix-preview", "--format", "json", "--no-config"], projectRoot);
+      const { stdout } = runCli(["scan", "--enable", "LP001", project, "--fix-preview", "--format", "json", "--no-config"], projectRoot);
       const report = JSON.parse(stdout);
 
       expect(report.findings.map((f: { file: string }) => f.file)).toEqual(["src/app.js", "src/my routes/users.js"]);
@@ -769,7 +792,7 @@ describe("CLI: every path is relative to the scanned folder (v0.4.2)", () => {
 
   it("shows the config file and the exclude root relative to the scanned folder too", () => {
     withProject({ ...files, "logpilot.config.json": '{ "exclude": ["nothing/**"] }', ".git/HEAD": "ref: refs/heads/main\n" }, (dir) => {
-      const { stdout, stderr } = runCli(["scan", path.join(dir, "my project")], projectRoot);
+      const { stdout, stderr } = runCli(["scan", "--enable", "LP001", path.join(dir, "my project")], projectRoot);
 
       expect(stdout).toContain("Config file: ../logpilot.config.json\n");
       expect(stderr).toBe('Warning: exclude pattern "nothing/**" matched nothing (patterns are relative to ..); check the spelling\n');
@@ -778,32 +801,177 @@ describe("CLI: every path is relative to the scanned folder (v0.4.2)", () => {
 });
 
 // v0.4.2: an early tester's Next.js project got 0 LP003 findings without knowing LP003 had nothing to check.
+// CHANGED ON PURPOSE (v0.4.3): LP001 is off by default; these tests use empty catches (LP001) as
+// findings to check other behaviour, so their scans pass --enable LP001.
 describe("CLI: says when no Express handler was found (v0.4.2)", () => {
   const line = "No Express handlers found: LP003 and fix previews only check Express apps.\n";
 
   it("says so once, in the summary, when no scanned file has an Express handler", () => {
     withProject({ "a.js": EMPTY_CATCH, "b.ts": "export async function GET() { return Response.json({ ok: true }); }\n" }, (dir) => {
-      const { stdout } = runCli(["scan", "."], dir);
+      const { stdout } = runCli(["scan", "--enable", "LP001", "."], dir);
 
       expect(stdout.endsWith(`Scanned 2 files, 1 finding (LP001: 1)\n${line}`)).toBe(true);
       expect(stdout.split(line)).toHaveLength(2); // exactly once
-      expect(JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout).summary.filesWithExpressHandlers).toBe(0);
+      expect(JSON.parse(runCli(["scan", "--enable", "LP001", ".", "--format", "json"], dir).stdout).summary.filesWithExpressHandlers).toBe(0);
     });
   });
 
   it("does not say it when at least one file has an Express handler, even one with no finding", () => {
     const handled = 'const app = require("express")();\napp.get("/", (req, res) => { res.json({ ok: true }); });\n';
     withProject({ "a.js": EMPTY_CATCH, "server.js": handled }, (dir) => {
-      const { stdout } = runCli(["scan", "."], dir);
+      const { stdout } = runCli(["scan", "--enable", "LP001", "."], dir);
 
       expect(stdout).not.toContain("No Express handlers");
-      expect(JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout).summary.filesWithExpressHandlers).toBe(1);
+      expect(JSON.parse(runCli(["scan", "--enable", "LP001", ".", "--format", "json"], dir).stdout).summary.filesWithExpressHandlers).toBe(1);
     });
   });
 
   it("does not say it when nothing was scanned", () => {
     withProject({ "notes.md": "# notes\n" }, (dir) => {
       expect(runCli(["scan", "."], dir).stdout).toBe("Scanned 0 files, 0 findings\n");
+    });
+  });
+});
+
+// v0.4.3: LP001 is off by default; "rules" in the config file and --enable turn rules on or off.
+describe("CLI: rules on and off (v0.4.3)", () => {
+  const files = { "a.js": EMPTY_CATCH, "b.js": 'try { load(); } catch (err) { throw new Error("load failed"); }\n' };
+  const offLine =
+    'LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with "rules": { "LP001": "on" } ' +
+    "in logpilot.config.json, or --enable LP001.\n";
+
+  it("does not run LP001 by default, and says so once in the summary", () => {
+    withProject(files, (dir) => {
+      const { exitCode, stdout } = runCli(["scan", "."], dir);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).not.toContain("LP001 empty-catch |");
+      expect(stdout.endsWith(`Scanned 2 files, 1 finding (LP002: 1)\nNo Express handlers found: LP003 and fix previews only check Express apps.\n${offLine}`)).toBe(true);
+    });
+  });
+
+  it("--fail-on no longer fails on an empty catch by default (it did before v0.4.3), only with LP001 on", () => {
+    withProject({ "a.js": EMPTY_CATCH }, (dir) => {
+      expect(runCli(["scan", ".", "--fail-on", "low"], dir).exitCode).toBe(0);
+      expect(runCli(["scan", ".", "--fail-on", "low", "--enable", "LP001"], dir).exitCode).toBe(1);
+    });
+  });
+
+  it("turns LP001 on with --enable or with the config file, and then does not print the line", () => {
+    withProject(files, (dir) => {
+      const flag = runCli(["scan", ".", "--enable", "LP001"], dir).stdout;
+      expect(flag).toContain("Scanned 2 files, 2 findings (LP001: 1, LP002: 1)\n");
+      expect(flag).not.toContain("off by default");
+    });
+    withProject({ ...files, "logpilot.config.json": '{ "rules": { "LP001": "on" } }' }, (dir) => {
+      const config = runCli(["scan", "."], dir).stdout;
+      expect(config).toContain("Scanned 2 files, 2 findings (LP001: 1, LP002: 1)\n");
+      expect(config).not.toContain("off by default");
+    });
+  });
+
+  it("does not print the line when the config file turns LP001 off on purpose; --enable wins over the config file", () => {
+    withProject({ ...files, "logpilot.config.json": '{ "rules": { "LP001": "off", "LP002": "off" } }' }, (dir) => {
+      const off = runCli(["scan", "."], dir).stdout;
+      expect(off).toContain("Scanned 2 files, 0 findings\n");
+      expect(off).not.toContain("off by default");
+
+      expect(runCli(["scan", ".", "--enable", "LP001"], dir).stdout).toContain("Scanned 2 files, 1 finding (LP001: 1)\n");
+      expect(runCli(["scan", ".", "--enable", "LP001", "--enable", "LP002"], dir).stdout).toContain(
+        "Scanned 2 files, 2 findings (LP001: 1, LP002: 1)\n",
+      );
+    });
+  });
+
+  it("rejects an unknown rule in --enable (exit code 2), and in the config file", () => {
+    withProject(files, (dir) => {
+      const unknown = runCli(["scan", ".", "--enable", "LP009"], dir);
+      expect([unknown.exitCode, unknown.stdout]).toEqual([2, ""]);
+      expect(unknown.stderr).toContain('Error: --enable "LP009": unknown rule (known rules: LP001, LP002, LP003)');
+    });
+    withProject({ ...files, "logpilot.config.json": '{ "rules": { "LP001": "yes" } }' }, (dir) => {
+      const bad = runCli(["scan", "."], dir);
+      expect([bad.exitCode, bad.stderr]).toEqual([2, 'Error: logpilot.config.json: "rules": "LP001" must be "on" or "off"\n']);
+    });
+  });
+
+  it("writes rules[].enabled and config.rules in JSON (schema version stays 3)", () => {
+    withProject(files, (dir) => {
+      const report = JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout);
+
+      expect(report.schemaVersion).toBe(3);
+      expect(report.rules.map((r: { id: string; enabled: boolean }) => [r.id, r.enabled])).toEqual([
+        ["LP001", false],
+        ["LP002", true],
+        ["LP003", true],
+      ]);
+      expect(report.config.rules).toEqual({ LP001: "off", LP002: "on", LP003: "on" });
+      expect(report.summary.findingsByRule).toEqual({ LP001: 0, LP002: 1, LP003: 0 });
+    });
+  });
+
+  it("documents --enable and the rules in --help", () => {
+    const { stdout } = runCli(["--help"]);
+    expect(stdout).toContain("--enable <rule>");
+    expect(stdout).toContain("LP001 empty-catch (off by default)");
+  });
+});
+
+// v0.4.3: findings with the same pattern are listed under the first one (LP001 and LP002).
+describe("CLI: repeated patterns (v0.4.3)", () => {
+  const thrower = (cls: string, msg: string) => `try { load(); } catch (err) { throw new ${cls}("${msg}"); }\n`;
+  const files = {
+    "a.js": thrower("ApiError", "a"),
+    "b.js": thrower("ApiError", "b"),
+    "c.js": thrower("ApiError", "c"),
+    "d.js": thrower("NotFoundError", "d"),
+  };
+
+  it("lists every location of a pattern under its first finding, and counts patterns in the summary", () => {
+    withProject(files, (dir) => {
+      const { stdout } = runCli(["scan", "."], dir);
+
+      expect(stdout).toContain("  Same pattern in 2 more places (throw new ApiError(...) without the caught error):\n    b.js:1:31\n    c.js:1:31\n");
+      expect(stdout).not.toMatch(/^b\.js:1:31$/m); // not printed again on its own
+      expect(stdout).toMatch(/^d\.js:1:31$/m); //     another class: its own pattern
+      expect(stdout).toContain("Scanned 4 files, 4 findings in 2 patterns (LP002: 4)\n");
+    });
+  });
+
+  it("--verbose shows every finding in full", () => {
+    withProject(files, (dir) => {
+      const { stdout } = runCli(["scan", ".", "--verbose"], dir);
+
+      expect(stdout).not.toContain("Same pattern");
+      expect(stdout).toMatch(/^b\.js:1:31$/m);
+      expect(stdout).toContain("Scanned 4 files, 4 findings in 2 patterns (LP002: 4)\n");
+    });
+  });
+
+  it("gives each finding a stable pattern ID in JSON, and counts patterns", () => {
+    withProject(files, (dir) => {
+      const report = JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout);
+      const ids = report.findings.map((f: { pattern: string }) => f.pattern);
+
+      expect(ids[0]).toMatch(/^LP002-[0-9a-f]{8}$/);
+      expect(ids.slice(0, 3)).toEqual([ids[0], ids[0], ids[0]]);
+      expect(ids[3]).not.toBe(ids[0]);
+      expect(report.summary.patterns).toBe(2);
+      expect(runCli(["scan", ".", "--format", "json"], dir).stdout).toBe(JSON.stringify(report, null, 2) + "\n"); // same every run
+    });
+  });
+
+  it("never groups LP003 findings, even identical ones", () => {
+    const handler = (route: string) =>
+      `const app = require("express")();\napp.get("${route}", async (req, res) => {\n  try { res.json(await load()); } catch (err) { res.status(500).json({ message: "Server error" }); }\n});\n`;
+    withProject({ "a.js": handler("/a"), "b.js": handler("/b") }, (dir) => {
+      const { stdout } = runCli(["scan", "."], dir);
+      const report = JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout);
+
+      expect(stdout).not.toContain("Same pattern");
+      expect(stdout).toContain("Scanned 2 files, 2 findings (LP003: 2)\n");
+      expect(report.findings.map((f: { pattern: string | null }) => f.pattern)).toEqual([null, null]);
+      expect(report.summary.patterns).toBe(2);
     });
   });
 });

@@ -41,10 +41,14 @@ are no wrong answers, and nothing you send is shared with your name.
    ```
 
    The last lines of `logpilot-report.txt` say how many files were scanned and how many findings
-   there are. Zero findings is a useful answer too.
+   there are. Zero findings is a useful answer too. Since v0.4.3, empty catches (LP001) are not
+   reported unless you add `--enable LP001`.
 
 3. Open `logpilot-report.txt`. For **each finding**, read the "Why" and "Fix" lines and look at
-   your code at the `file:line` shown.
+   your code at the `file:line` shown. When several findings have the same pattern, the report
+   shows the first one in full and lists the others under it ("Same pattern in N more places");
+   one row in the table below can then cover the whole pattern (write all its locations, or
+   "and N more").
 
 4. Fill in the table below: one row per finding, at most 15 rows. If there are more, take every
    second one.

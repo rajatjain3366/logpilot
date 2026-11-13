@@ -423,3 +423,55 @@ describe("LP001 empty-catch: edge cases", () => {
     expect(findings[0].evidence).toBe("} catch (e) {}");
   });
 });
+
+// v0.4.3: the pattern decides which findings the report lists together (see LP002's tests).
+describe("LP001 patterns (grouping repeated findings, v0.4.3)", () => {
+  /** The pattern of the one LP001 finding in `code`. */
+  function patternOf(code: string) {
+    const findings = runOnCode("a.ts", code);
+    expect(findings).toHaveLength(1);
+    return findings[0].pattern;
+  }
+  const storage = patternOf('try { localStorage.setItem("theme", t); } catch (e) {}');
+
+  it("is the same for the same first call and case, whatever the arguments or variable name", () => {
+    expect(patternOf('try {\n  localStorage.setItem("language", value);\n} catch (error) {}')).toEqual(storage);
+    expect(patternOf("try { await localStorage . setItem(k, v); } catch (err) {}")).toEqual(storage);
+    expect(storage?.label).toBe("empty catch around localStorage.setItem(...)");
+    expect(storage?.id).toMatch(/^LP001-[0-9a-f]{8}$/);
+  });
+
+  it("differs for another call, a comment, another kind of catch variable, or another case", () => {
+    const others = [
+      patternOf('try { localStorage.getItem("theme"); } catch (e) {}'),
+      patternOf('try { localStorage.setItem("theme", t); } catch (e) {\n  // private mode: not remembered\n}'),
+      patternOf('try { localStorage.setItem("theme", t); } catch {}'),
+      patternOf('try { localStorage.setItem("theme", t); } catch (_) {}'),
+      patternOf("try { counter++; } catch (e) {}"),
+    ];
+    for (const other of others) expect(other?.id).not.toBe(storage?.id);
+    expect(new Set(others.map((p) => p?.id)).size).toBe(others.length);
+    expect(others.map((p) => p?.label)).toEqual([
+      "empty catch around localStorage.getItem(...)",
+      "empty catch around localStorage.setItem(...), with a comment in the catch",
+      "empty catch around localStorage.setItem(...), no catch variable",
+      "empty catch around localStorage.setItem(...), catch variable starts with _",
+      "empty catch", // no call in the try block
+    ]);
+  });
+
+  it("differs for the existence-check case, even around the same call", () => {
+    const read = 'try { settings = parse(readFileSync(file, "utf8")); } catch (e) {}';
+    const plain = patternOf(read);
+    const guarded = patternOf(`if (existsSync(file)) { ${read} }`);
+
+    expect(plain?.label).toBe("empty catch around parse(...)");
+    expect(guarded?.label).toBe("empty catch around parse(...), existence check");
+    expect(guarded?.id).not.toBe(plain?.id);
+  });
+
+  it("skips calls inside nested functions when it looks for the first call", () => {
+    expect(patternOf("try { items.forEach((item) => save(item)); } catch (e) {}")?.label).toBe("empty catch around items.forEach(...)");
+    expect(patternOf("try { const f = () => save(); x = 1; } catch (e) {}")?.label).toBe("empty catch");
+  });
+});

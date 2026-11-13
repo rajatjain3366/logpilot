@@ -6,9 +6,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ALL_RULE_IDS, enabledRuleIds } from "../src/analyze.js";
 import { scanPath } from "../src/scanner.js";
 
 const EMPTY_CATCH = "try { work(); } catch (e) {}\n";
+// CHANGED ON PURPOSE (v0.4.3): LP001 is off by default. These tests use empty catches (LP001) to
+// see which files were scanned, so they run every rule. The defaults are tested at the end.
+const ALL_RULES = { enabledRules: ALL_RULE_IDS };
 let projectDir: string;
 
 /** Writes `content` to `relativePath` inside the temp project, creating folders as needed. */
@@ -44,7 +48,7 @@ afterAll(() => {
 
 describe("scanner", () => {
   it("scans every supported extension and skips node_modules, dist, .git, .d.ts and other files", () => {
-    const result = scanPath(projectDir, projectDir);
+    const result = scanPath(projectDir, projectDir, ALL_RULES);
 
     expect(result.filesScanned).toBe(6);
     expect(result.warnings).toEqual([]);
@@ -60,7 +64,7 @@ describe("scanner", () => {
   });
 
   it("can scan a single file", () => {
-    const result = scanPath("src/app.ts", projectDir);
+    const result = scanPath("src/app.ts", projectDir, ALL_RULES);
 
     expect(result.filesScanned).toBe(1);
     expect(result.findings).toHaveLength(1);
@@ -74,7 +78,7 @@ describe("scanner", () => {
     try {
       // Line 1: LP002 (new error drops err). Line 2: LP001 (empty catch).
       writeFileSync(path.join(dir, "order.ts"), 'try { a(); } catch (err) { throw new Error("x"); }\ntry { b(); } catch (e) {}\n');
-      const result = scanPath("order.ts", dir);
+      const result = scanPath("order.ts", dir, ALL_RULES);
 
       expect(result.findings.map((f) => [f.line, f.ruleId])).toEqual([
         [1, "LP002"],
@@ -94,7 +98,7 @@ describe("scanner", () => {
   });
 
   it("records every skipped folder with its reason, sorted by path", () => {
-    const result = scanPath(projectDir, projectDir);
+    const result = scanPath(projectDir, projectDir, ALL_RULES);
 
     expect(result.skipped).toEqual([
       { path: ".git", kind: "folder", reason: "default-folder", detail: "git internals, never scanned" },
@@ -126,7 +130,7 @@ describe("scanner: default folder excludes (Milestone 2)", () => {
     for (const folder of folders) files[`${folder}/lib.js`] = EMPTY_CATCH;
 
     withProject(files, (dir) => {
-      const result = scanPath(dir, dir);
+      const result = scanPath(dir, dir, ALL_RULES);
 
       expect(result.findings.map((f) => f.file)).toEqual(["docs/example.js", "public/app.js", "src/app.ts"]);
       expect(result.skipped.map((s) => [s.path, s.kind, s.reason])).toEqual(
@@ -149,7 +153,7 @@ describe("scanner: default folder excludes (Milestone 2)", () => {
     };
 
     withProject(files, (dir) => {
-      const result = scanPath(dir, dir);
+      const result = scanPath(dir, dir, ALL_RULES);
 
       expect(result.findings.map((f) => f.file)).toEqual(["lib/own.js", "src/app.js"]);
       expect(result.skipped.map((s) => [s.path, s.reason])).toEqual([
@@ -160,7 +164,7 @@ describe("scanner: default folder excludes (Milestone 2)", () => {
         ["public/jquery.min.js", "minified-name"],
       ]);
 
-      const everything = scanPath(dir, dir, { defaultExcludes: false });
+      const everything = scanPath(dir, dir, { ...ALL_RULES, defaultExcludes: false });
       expect([...new Set(everything.findings.map((f) => f.file))]).toEqual([
         "dist/out.js",
         "lib/own.js",
@@ -175,7 +179,7 @@ describe("scanner: default folder excludes (Milestone 2)", () => {
 
   it("warns about a file with syntax errors, and still reports what it can find in it", () => {
     withProject({ "src/broken.js": "try { a(); } catch (e) {}\nconst = 5;\n", "src/fine.js": "const ok = 1;\n" }, (dir) => {
-      const result = scanPath(dir, dir);
+      const result = scanPath(dir, dir, ALL_RULES);
 
       expect(result.filesScanned).toBe(2);
       expect(result.findings.map((f) => [f.file, f.line])).toEqual([["src/broken.js", 1]]);
@@ -196,7 +200,7 @@ describe("scanner: default folder excludes (Milestone 2)", () => {
     const files = { "src/app.js": EMPTY_CATCH, "docs/site/theme.js": EMPTY_CATCH, "src/api.generated.js": EMPTY_CATCH };
 
     withProject(files, (dir) => {
-      const result = scanPath(dir, dir, { exclude: ["docs/**", "**/*.generated.js", "scripts/**"], excludeRoot: dir });
+      const result = scanPath(dir, dir, { ...ALL_RULES, exclude: ["docs/**", "**/*.generated.js", "scripts/**"], excludeRoot: dir });
 
       expect(result.findings.map((f) => f.file)).toEqual(["src/app.js"]);
       expect(result.skipped).toEqual([
@@ -214,8 +218,8 @@ describe("scanner: default folder excludes (Milestone 2)", () => {
 
   it("matches exclude patterns relative to excludeRoot, which defaults to the scanned folder", () => {
     withProject({ "web/docs/a.js": EMPTY_CATCH, "web/src/b.js": EMPTY_CATCH }, (dir) => {
-      const fromScannedFolder = scanPath("web", dir, { exclude: ["docs/**"] });
-      const fromProjectRoot = scanPath("web", dir, { exclude: ["web/docs/**"], excludeRoot: dir });
+      const fromScannedFolder = scanPath("web", dir, { ...ALL_RULES, exclude: ["docs/**"] });
+      const fromProjectRoot = scanPath("web", dir, { ...ALL_RULES, exclude: ["web/docs/**"], excludeRoot: dir });
 
       // CHANGED ON PURPOSE (v0.4.2): paths are relative to the scanned folder "web" (were web/src/b.js).
       expect(fromScannedFolder.findings.map((f) => f.file)).toEqual(["src/b.js"]);
@@ -225,10 +229,56 @@ describe("scanner: default folder excludes (Milestone 2)", () => {
 
   it("skips a default folder at any depth", () => {
     withProject({ "packages/web/build/out.js": EMPTY_CATCH, "packages/web/src/app.js": EMPTY_CATCH }, (dir) => {
-      const result = scanPath(dir, dir);
+      const result = scanPath(dir, dir, ALL_RULES);
 
       expect(result.findings.map((f) => f.file)).toEqual(["packages/web/src/app.js"]);
       expect(result.skipped.map((s) => s.path)).toEqual(["packages/web/build"]);
+    });
+  });
+});
+
+// v0.4.3: LP001 is off by default; the config file's "rules" and --enable turn rules on or off.
+describe("scanner: which rules run (v0.4.3)", () => {
+  const LOST_CAUSE = 'try { load(); } catch (err) { throw new Error("load failed"); }\n';
+
+  it("runs LP002 and LP003 but not LP001 by default", () => {
+    withProject({ "a.js": EMPTY_CATCH, "b.js": LOST_CAUSE }, (dir) => {
+      expect(scanPath(dir, dir).findings.map((f) => f.ruleId)).toEqual(["LP002"]);
+      expect(scanPath(dir, dir, ALL_RULES).findings.map((f) => f.ruleId)).toEqual(["LP001", "LP002"]);
+    });
+  });
+
+  it("combines the defaults, the config file's rules and --enable, with --enable winning", () => {
+    expect([...enabledRuleIds()].sort()).toEqual(["LP002", "LP003"]);
+    expect([...enabledRuleIds({ LP001: "on" })].sort()).toEqual(["LP001", "LP002", "LP003"]);
+    expect([...enabledRuleIds({ LP002: "off", LP003: "off" })].sort()).toEqual([]);
+    expect([...enabledRuleIds({}, ["LP001"])].sort()).toEqual(["LP001", "LP002", "LP003"]);
+    expect([...enabledRuleIds({ LP001: "off" }, ["LP001"])].sort()).toEqual(["LP001", "LP002", "LP003"]); // the flag wins
+    expect([...enabledRuleIds({ LP002: "off" }, ["LP001"])].sort()).toEqual(["LP001", "LP003"]);
+  });
+
+  it("does not warn that a suppression for a rule that is off matched nothing", () => {
+    const suppressed = "try { work(); } catch (e) {} // logpilot-ignore-line LP001 -- optional cache\n";
+    const both = 'try { a(); } catch (e) {} // logpilot-ignore-line LP001, LP002 -- reviewed\n';
+    withProject({ "a.js": suppressed, "b.js": both }, (dir) => {
+      const off = scanPath(dir, dir);
+      expect(off.suppressed).toEqual([]);
+      // b.js: LP001 is off, so only LP002 (on, and with no finding there) is reported as unused.
+      expect(off.warnings.map((w) => w.message)).toEqual([
+        "b.js:1: the suppression for LP002 matched no finding on line 1; remove it if it is no longer needed",
+      ]);
+
+      const on = scanPath(dir, dir, ALL_RULES);
+      expect(on.suppressed.map((s) => s.finding.file)).toEqual(["a.js", "b.js"]);
+      expect(on.warnings.map((w) => w.message)).toEqual([
+        "b.js:1: the suppression for LP002 matched no finding on line 1; remove it if it is no longer needed",
+      ]);
+    });
+  });
+
+  it("still warns about a suppression that names an unknown rule or has no reason, even for a rule that is off", () => {
+    withProject({ "a.js": "try { work(); } catch (e) {} // logpilot-ignore-line LP001\n" }, (dir) => {
+      expect(scanPath(dir, dir).warnings.map((w) => w.type)).toEqual(["invalid-suppression"]);
     });
   });
 });

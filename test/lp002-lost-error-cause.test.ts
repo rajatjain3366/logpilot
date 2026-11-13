@@ -260,3 +260,57 @@ describe("LP002 lost-error-cause: edge cases", () => {
     expect(findings[0].evidence).toBe('  throw new Error("x");');
   });
 });
+
+// v0.4.3: the pattern decides which findings the report lists together. Same pattern = one
+// explanation fits all, so everything that changes the explanation must change the pattern.
+describe("LP002 patterns (grouping repeated findings, v0.4.3)", () => {
+  /** The pattern of the one LP002 finding in a catch block with this body. */
+  function patternOf(catchHead: string, body: string) {
+    const findings = runOnCode("a.ts", `try { load(); } ${catchHead} {\n${body}\n}\n`);
+    expect(findings).toHaveLength(1);
+    return findings[0].pattern;
+  }
+  const dropped = patternOf("catch (err)", '  throw new ApiError("Could not load the user");');
+
+  it("is the same for the same thrown class and outcome, whatever the message, variable name or place", () => {
+    expect(patternOf("catch (error)", '  throw new ApiError(`Order ${id} failed`, 502);')).toEqual(dropped);
+    expect(patternOf("catch (e)", "  throw new ApiError();")).toEqual(dropped);
+    expect(patternOf("catch (err)", '  throw new ApiError(\r\n    "split over lines");')).toEqual(dropped);
+    expect(dropped?.label).toBe("throw new ApiError(...) without the caught error");
+  });
+
+  it("has a stable ID: the rule ID and 8 hex digits, the same on every run and OS", () => {
+    expect(dropped?.id).toMatch(/^LP002-[0-9a-f]{8}$/);
+    // Pinned value: if this changes, pattern IDs in saved JSON reports change too.
+    expect(patternOf("catch (err)", '  throw new Error("x");')?.id).toBe("LP002-dcfb2a11");
+  });
+
+  it("differs when anything that changes the explanation differs", () => {
+    const others = [
+      patternOf("catch (err)", '  throw new NotFoundError("x");'), //            another class
+      patternOf("catch (err)", "  throw new ApiError(`x: ${err.message}`);"), // keeps only the text
+      patternOf("catch (err)", "  console.error(err);\n  throw new ApiError(\"x\");"), // logged first
+      patternOf("catch (err)", '  // the client must not see internals\n  throw new ApiError("x");'), // a comment
+      patternOf("catch", '  throw new ApiError("x");'), //                     no variable
+      patternOf("catch (_err)", '  throw new ApiError("x");'), //              underscore
+      patternOf("catch (err)", '  if (err.code === 1) throw new ApiError("x");'), // guarded
+    ];
+    for (const other of others) expect(other?.id).not.toBe(dropped?.id);
+    expect(new Set(others.map((p) => p?.id)).size).toBe(others.length);
+    expect(others.map((p) => p?.label)).toEqual([
+      "throw new NotFoundError(...) without the caught error",
+      "throw new ApiError(...) that keeps only the caught error's text",
+      "throw new ApiError(...) without the caught error, logged before the throw",
+      "throw new ApiError(...) without the caught error, with a comment",
+      "throw new ApiError(...) without the caught error, the catch has no variable",
+      "throw new ApiError(...) without the caught error, the variable starts with _",
+      "throw new ApiError(...) without the caught error, under a check of the error",
+    ]);
+  });
+
+  it("names the options mistake in its label", () => {
+    expect(patternOf("catch (err)", '  throw new Error("x", err);')?.label).toBe(
+      "new Error(..., caught error): the caught error is passed as options, not as the cause",
+    );
+  });
+});

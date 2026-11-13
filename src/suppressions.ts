@@ -8,7 +8,8 @@
 // Block comments work too (`/* ... */`, also `{/* ... */}` in JSX). Several rules can be listed:
 // `LP001, LP002`. There is no "ignore everything" form. A suppression that cannot be applied
 // (no rule, unknown rule, no reason) or that matches no finding produces a warning, so silent
-// decisions do not pile up unnoticed. Warnings never change the exit code.
+// decisions do not pile up unnoticed; except "matches no finding" for a rule that is turned off,
+// which could not have matched anything. Warnings never change the exit code.
 
 import ts from "typescript";
 import { findAllComments } from "./rules/shared.js";
@@ -34,12 +35,15 @@ export interface SuppressionResult {
 /**
  * Applies the suppression comments in one file to that file's findings (all with this file's
  * `displayPath`). Returns the findings that stay, the ones that were suppressed, and warnings.
+ * `enabledRules` are the rules that ran: a suppression for a rule that is off cannot match
+ * anything, so it gets no "matched no finding" warning (it is still checked for mistakes).
  */
 export function applySuppressions(
   sourceFile: ts.SourceFile,
   displayPath: string,
   findings: Finding[],
   knownRuleIds: string[],
+  enabledRules: ReadonlySet<string> = new Set(knownRuleIds),
 ): SuppressionResult {
   if (!sourceFile.text.includes("logpilot-ignore")) {
     return { kept: findings, suppressed: [], warnings: [] }; // fast path: most files have none
@@ -98,7 +102,7 @@ export function applySuppressions(
   }
 
   for (const suppression of suppressions) {
-    for (const ruleId of suppression.ruleIds.filter((id) => !suppression.used.has(id))) {
+    for (const ruleId of suppression.ruleIds.filter((id) => !suppression.used.has(id) && enabledRules.has(id))) {
       warn(
         "unused-suppression",
         suppression.commentLine,

@@ -8,10 +8,17 @@ LogPilot is an open-source, local command-line tool that scans JavaScript and Ty
 (Node.js) projects for code that would leave you **without evidence** when something goes
 wrong in production, for example an error that is caught and then silently thrown away.
 
-> **Status: early prototype, v0.4.2.** Three rules exist today: LP001, LP002 and LP003, and LP003
+> **Status: early prototype, v0.4.3.** Three rules exist today: LP001, LP002 and LP003, and LP003
 > findings can show a proposed fix ([fix previews](#fix-previews), never applied). The CLI is
 > not published to npm yet; see [Quick start](#quick-start) for running it from this repository.
 > Before relying on the results, read [Accuracy](#accuracy).
+
+> **Changed in v0.4.3: LP001 (`empty-catch`) is off by default.** Most empty catches on real
+> projects were deliberate (see [LP001 in more detail](#lp001-in-more-detail)). **If your CI runs
+> `--fail-on` and relied on LP001 findings to fail, it no longer fails on empty catches.** To keep
+> the old behaviour, add `"rules": { "LP001": "on" }` to `logpilot.config.json`, or pass
+> `--enable LP001`. Also new: findings with the same pattern are
+> [listed together](#repeated-patterns).
 
 Repository: https://github.com/rajatjain3366/logpilot
 
@@ -77,6 +84,8 @@ Scan options:
   --no-config              Do not use any config file
   --exclude <pattern>      Do not scan matching files or folders, e.g. "docs/**" (can be repeated;
                            adds to "exclude" in the config file)
+  --enable <rule>          Turn on a rule that is off by default, e.g. --enable LP001 (can be
+                           repeated; wins over "rules" in the config file)
   --show-skipped           List every file and folder that was not scanned, and why
   --no-default-excludes    Also scan build output, third-party folders, minified and vendored files
                            (node_modules and .git are never scanned)
@@ -87,8 +96,11 @@ Scan options:
   --output <file>          Write the report to this file instead of the terminal
   --fix-preview            Show a proposed fix (a diff) under each LP003 finding. A preview only:
                            LogPilot never changes your files
-  --verbose                Repeat the full explanation for every finding (by default, later
-                           findings of the same kind refer back to the first one)
+  --verbose                Show every finding in full (by default, findings with the same pattern
+                           are listed under the first one, and later findings of the same kind
+                           refer back to the first one)
+
+Rules: LP001 empty-catch (off by default), LP002 lost-error-cause, LP003 unlogged-error-response.
 ```
 
 ## Example output
@@ -117,6 +129,7 @@ lp003-error-responses.js:14:5
        or URLs (paths and query strings can carry tokens).
 
 Scanned 1 file, 8 findings (LP003: 8)
+LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with "rules": { "LP001": "on" } in logpilot.config.json, or --enable LP001.
 ```
 
 An LP002 finding (from `node dist/cli.js scan test/fixtures/positive/lp002-options-mistake.ts --no-config`):
@@ -140,6 +153,30 @@ lp002-options-mistake.ts:11:5
 or drive you run LogPilot from: `scan D:\projects\shop` and `scan ../..` both print
 `src/routes/users.js:14:5`. This holds for the text report, the JSON report and the diffs of
 [fix previews](#fix-previews), whose `a/` and `b/` paths you can apply from the scanned folder.
+
+### Repeated patterns
+
+When several findings have the **same pattern** (same rule, case, levels and code shape: for LP002
+the thrown class, for LP001 the first call in the `try`), the first is shown in full and the others
+are listed under it by location. Every location is still printed. From
+`node dist/cli.js scan test/fixtures/positive/lp002-message-only.js --no-config` (first finding
+only; the file has 5 findings in 3 patterns):
+
+```text
+lp002-message-only.js:10:5
+  LP002 lost-error-cause | severity: medium | confidence: high
+  Evidence:
+    10 |     throw new Error(`Failed to read settings: ${err.message}`);
+  Why: This throw replaces `err` (caught on line 9) with a new error that keeps only part of it,
+       ...
+  Same pattern in 2 more places (throw new Error(...) that keeps only the caught error's text):
+    lp002-message-only.js:18:5
+    lp002-message-only.js:35:5
+```
+
+The summary counts patterns: `Scanned 1 file, 5 findings in 3 patterns (LP002: 5)`. `--verbose`
+shows every finding in full. LP003 findings are never grouped: each one is a separate handler.
+In JSON, each finding has a `pattern` ID (see [JSON output](#json-output)).
 
 **Concise by default.** The first finding of each rule and kind gets the full "Why" and "Fix".
 Later findings of the same kind get one line instead, such as
@@ -183,6 +220,7 @@ From `node dist/cli.js scan test/fixtures/fix/loggers/pino-in-file.js --fix-prev
            and req.route?.path, and after it this finding is gone and no other finding changes.
 
 Scanned 1 file, 1 finding (LP003: 1)
+LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with "rules": { "LP001": "on" } in logpilot.config.json, or --enable LP001.
 Fix previews (LP003 only): 1 available, 0 not available.
 No file was changed: apply a fix yourself after reviewing it.
 ```
@@ -305,7 +343,7 @@ which many handlers rule out by checking it first.
 
 | Rule | Name | Detects | Severity | Confidence |
 |---|---|---|---|---|
-| `LP001` | `empty-catch` | A `catch` block with no statements: `catch (e) {}`, `catch {}`. Worth reviewing | medium | high |
+| `LP001` | `empty-catch` | **Off by default** (turn it on with `--enable LP001` or `"rules": { "LP001": "on" }`). A `catch` block with no statements: `catch (e) {}`, `catch {}`. Worth reviewing | medium | high |
 | | | …and an existence check on the same thing runs first (`if (existsSync(f)) { try { read(f) } catch {} }`, also `map.has(k)`, `k in obj`, `stat(p).isFile()`, or an early `if (!existsSync(f)) return;`), so only *unexpected* errors can reach the catch | high | unchanged |
 | | | …and a comment explains the ignore: inside the catch, inside the try, on the line(s) directly above the `try`, or right after the catch's `}` | unchanged | medium |
 | | | …inside another `catch` whose own error is still thrown, returned or passed on (best-effort work while handling that error) | low | unchanged |
@@ -336,6 +374,13 @@ default; see [What LogPilot does not scan](#what-logpilot-does-not-scan).
 > on, **3 of LP001's 25 findings were real problems (12%)**, and severity did not separate them
 > from the rest (see [Accuracy](#accuracy)). `no-empty` reports the same empty catch blocks, in
 > your editor. LP001 stays in LogPilot as it is.
+>
+> **Since v0.4.3, LP001 is off by default.** Early testers judged all 6 of their LP001 findings
+> to be deliberate. Turn it on with `--enable LP001` or `"rules": { "LP001": "on" }` in
+> `logpilot.config.json`. While it is off, the summary says so once:
+> `LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with ...`.
+> Its rule version went from 2 to 3 in v0.4.3 because its suggestion text changed (v0.4.2);
+> what it detects has not changed since version 2.
 
 For LP001, an outer error that is passed on wins over an existence check; a comment does not.
 
@@ -492,7 +537,8 @@ Put a `logpilot.config.json` in your project:
   "exclude": ["docs/**", "scripts/**"],
   "defaultExcludes": true,
   "minSeverity": "low",
-  "failOn": "none"
+  "failOn": "none",
+  "rules": { "LP001": "on" }
 }
 ```
 
@@ -502,6 +548,7 @@ Put a `logpilot.config.json` in your project:
 | `defaultExcludes` | Skip the default folders, minified and vendored files listed [below](#what-logpilot-does-not-scan) | `true` |
 | `minSeverity` | Show only findings at or above `low`, `medium` or `high` (see [Choosing what to show, and when to fail](#choosing-what-to-show-and-when-to-fail)) | `"low"` |
 | `failOn` | Exit with code 1 when a shown finding is at or above `none`, `low`, `medium` or `high` | `"none"` |
+| `rules` | Turn rules `"on"` or `"off"` by ID, for example `{ "LP001": "on" }`. Rules you do not name keep their default: LP001 off, LP002 and LP003 on. `--enable <rule>` wins over this setting | `{}` |
 
 - **Where LogPilot finds it:**
   - It looks in the scanned folder, then in each parent folder up to the repository root (the
@@ -577,6 +624,8 @@ try {
 - LogPilot also warns when a suppression names no rule or an unknown rule, and when it matches no
   finding (for example after the code was fixed), so outdated suppressions do not pile up.
   Warnings never change the exit code.
+- A suppression for a rule that is turned off (such as LP001 by default) gets no "matched no
+  finding" warning: that rule did not run, so it could not have matched anything.
 - The summary counts suppressed findings (`1 finding was suppressed by logpilot-ignore comments.`).
   The JSON report lists each one with its reason.
 
@@ -589,6 +638,9 @@ try {
 - **By default, findings never fail a scan (`--fail-on none`): LogPilot is warning-only.** This
   changed in v0.2.0: v0.1.0 exited with code 1 whenever there was a finding. Use `--fail-on low`
   for the old behaviour.
+- **Only rules that run can fail a scan.** Since v0.4.3, LP001 is off by default, so empty catches
+  no longer fail `--fail-on` unless you turn LP001 on (`--enable LP001` or
+  `"rules": { "LP001": "on" }`).
 - A `--fail-on` level below `--min-severity` (for example `--min-severity high --fail-on medium`)
   is refused with exit code 2, because LogPilot would fail on findings it does not show.
 - Both can be set in the config file (`minSeverity`, `failOn`); command-line options win.
@@ -613,24 +665,29 @@ LogPilot refuses an `--output` file that ends in a JavaScript or TypeScript exte
 The report has this shape (schema version 3). The `summary` below is real: the MongoDB Node.js
 driver at the commit listed in [docs/evaluation.md](docs/evaluation.md), scanned with default
 settings (a library, so LP003 finds nothing there; the 2 files with Express handlers are a small
-docs preview server and a test with a mock request handler):
+docs preview server and a test with a mock request handler; LP001 is off by default, so its 18
+findings there are not reported):
 
 ```json
 {
   "schemaVersion": 3,
-  "tool": { "name": "logpilot", "version": "0.4.2" },
+  "tool": { "name": "logpilot", "version": "0.4.3" },
   "rules": [
-    { "id": "LP001", "name": "empty-catch", "version": 2 },
-    { "id": "LP002", "name": "lost-error-cause", "version": 1 },
-    { "id": "LP003", "name": "unlogged-error-response", "version": 3 }
+    { "id": "LP001", "name": "empty-catch", "version": 3, "enabled": false },
+    { "id": "LP002", "name": "lost-error-cause", "version": 1, "enabled": true },
+    { "id": "LP003", "name": "unlogged-error-response", "version": 3, "enabled": true }
   ],
-  "config": { "file": null, "defaultExcludes": true, "exclude": [], "minSeverity": "low", "failOn": "none", "fixPreview": false },
+  "config": {
+    "file": null, "defaultExcludes": true, "exclude": [], "minSeverity": "low", "failOn": "none", "fixPreview": false,
+    "rules": { "LP001": "off", "LP002": "on", "LP003": "on" }
+  },
   "summary": {
     "filesScanned": 737,
     "filesWithExpressHandlers": 2,
-    "findings": 31,
-    "findingsByRule": { "LP001": 18, "LP002": 13, "LP003": 0 },
-    "findingsBySeverity": { "high": 5, "medium": 17, "low": 9 },
+    "findings": 13,
+    "patterns": 11,
+    "findingsByRule": { "LP001": 0, "LP002": 13, "LP003": 0 },
+    "findingsBySeverity": { "high": 1, "medium": 3, "low": 9 },
     "hiddenBelowMinSeverity": 0,
     "suppressed": 0,
     "skippedFiles": { "minified": 275, "vendored": 15, "userExclude": 0 },
@@ -651,7 +708,7 @@ docs preview server and a test with a mock request handler):
 
 | List | Keys |
 |---|---|
-| `findings` | `ruleId`, `ruleName`, `file`, `line`, `column`, `severity`, `confidence`, `evidence`, `explanation`, `suggestion`, `fix` |
+| `findings` | `ruleId`, `ruleName`, `file`, `line`, `column`, `severity`, `confidence`, `evidence`, `explanation`, `suggestion`, `pattern`, `fix` |
 | `suppressed` | `finding` (as above), `reason`, `commentLine` |
 | `skipped` | `path`, `kind` (`file` or `folder`), `reason` (`default-folder`, `minified-name`, `minified-content`, `vendored-banner`, `user-exclude`), `detail` |
 | `warnings` | `type` (`read-error`, `syntax-error`, `unused-exclude`, `invalid-suppression`, `unused-suppression`, `fix-validation-failed`), `file`, `line`, `message` |
@@ -683,6 +740,16 @@ docs preview server and a test with a mock request handler):
     relative to the scanned folder (for a single file, its folder). Before, paths were relative to
     the folder LogPilot was run from, so `scan src` from the project root gave `src/app.js` and now
     gives `app.js`. Version 3 also added `summary.filesWithExpressHandlers`.
+  - Added in v0.4.3 (still version 3, only new keys): `enabled` for each rule, `config.rules`
+    (every rule, `"on"` or `"off"` in this scan), `pattern` for each finding, and
+    `summary.patterns`. A rule that is off has `"enabled": false` and 0 in `findingsByRule`, so
+    "off" and "no findings" can be told apart.
+- **Patterns.** Each LP001 and LP002 finding has a `pattern` ID such as `"LP002-dcfb2a11"`: the
+  rule ID and 8 hex digits of a hash of its case, levels and code shape. Findings with the same ID
+  share one explanation. The ID is the same on every run and every OS, and changes only if the
+  pattern's parts change in a future version. LP003 findings have `"pattern": null`.
+  `summary.patterns` counts distinct patterns among the shown findings (each finding without a
+  pattern counts as one).
 - **Stable output.** The same code gives byte-identical JSON on every run: keys in a fixed order,
   sorted lists, `/` in paths, no timestamps. Every object always has all its keys: missing values
   are `null`, and counts of 0 are included.
@@ -752,6 +819,15 @@ We have not measured how many LogPilot findings these lint rules also report.
 
 - **Most findings are not real problems, and severity does not yet separate the real ones.** See
   [Accuracy](#accuracy) for the measured numbers.
+- **LP001 is off by default (v0.4.3),** so a default scan does not report empty catches, not even
+  the few that are real problems or the "this test can never fail" case. Turn it on with
+  `--enable LP001`.
+- **Grouping compares the shape of the code, not what it means.** Two `throw new ApiError(...)`
+  that drop the caught error are one pattern even if only one of them matters. Each location is
+  still listed, but only the first finding's evidence and suggestion are printed: a listed
+  finding's own suggestion details (such as LP002's rewritten `throw` with its own message) are
+  shown only with `--verbose` and in the JSON report. For LP001, "the same shape" means the same
+  first call in the `try` block, which may not be what the block is about.
 - **LP001's "this test can never fail" check knows only the calls listed under
   [LP001 in more detail](#lp001-in-more-detail).** Assertions that fail on other falsy values
   (`assert(0)`), Jasmine's bare `fail()`, should.js, and QUnit's `assert` parameter are not

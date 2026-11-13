@@ -6,7 +6,8 @@ it as the rules change. Three rounds have been measured so far.
 [LP003](#current-results-lp003-on-held-out-express-apps) was measured on held-out Express apps in
 Milestone 2.5, and 10 of its findings were labelled again by a
 [blind second labeller](#lp003-second-labeller-check). [Round 3](#current-results-lp001-v2-round-3-held-out) is the current honest
-estimate for LP001 (version 2, frozen); [round 2](#round-2-results-held-out) is still the latest
+estimate for LP001 (version 2; detection unchanged since v2: version 3, in v0.4.3, changed only
+its suggestion text); [round 2](#round-2-results-held-out) is still the latest
 held-out measurement of LP002; round 1 is kept further down as history. A
 [re-scan](#milestone-2-mongodb-driver-re-scan-with-default-excludes-not-a-precision-claim) of the
 MongoDB driver after Milestone 2 checks the new default file skips; it is not a new precision
@@ -380,8 +381,36 @@ repository is the exception: it is public, so its file paths are given.
   Result at v0.4.2: 45 files, 0 findings, 1 suppressed.
 - **LP001's suggestion text** (T1): the examples use a neutral `"<what failed>"` instead of
   `"failed to load config"`. For a catch variable named `_` or `_name`, they use `err` and say to
-  rename it. Only the text changed: LP001 reports exactly the same findings, so it stays at
-  version 2.
+  rename it. Only the text changed: LP001 reports exactly the same findings. In v0.4.3 this text
+  change was counted as rule version 3, for consistency with LP003; detection unchanged since v2.
+
+**Changed in v0.4.3 because of this:**
+
+- **LP001 is off by default** (all 6 tester LP001 findings were deliberate; held-out precision
+  3 of 25). It is turned on with `--enable LP001` or `"rules": { "LP001": "on" }`, and the summary
+  says once that it is off. LogPilot's own `logpilot.config.json` turns it on, so the self-scan in
+  CI still checks LogPilot's code for empty catches.
+- **Findings with the same pattern are listed together** (T2): same rule, case, levels and code
+  shape (for LP002 the thrown class; for LP001 the first call in the `try`). The first is shown
+  in full, every other location is listed under it, and the summary says "in N patterns".
+  LP003 findings are never grouped.
+
+**The four scenarios again, before and after v0.4.3.** We do not have the testers' code, so
+these are small projects written with the same shapes (T3 is LogPilot's own repository at the
+v0.4.2 commit, so it is exact). Each was scanned with v0.4.2 and v0.4.3, default settings, output
+piped to a file (100 columns):
+
+| Scenario | v0.4.2 summary | v0.4.3 summary | Report lines (v0.4.2 → v0.4.3) |
+|---|---|---|---|
+| T1 (Express backend) | 2 findings (LP001: 1, LP003: 1) | 1 finding (LP003: 1) | 34 → 20 |
+| T2 (Next.js and TypeScript) | 24 findings (LP001: 3, LP002: 21) | 21 findings in 5 patterns (LP002: 21) | 209 → 99 |
+| T2 with `--enable LP001` | | 24 findings in 6 patterns (LP001: 3, LP002: 21) | 209 → 120 |
+| T3 (LogPilot at the v0.4.2 commit) | 0 findings, 1 suppressed | 0 findings (LP001 off: its suppression has nothing to match, and no warning) | 5 → 5 |
+| T4 (full stack) | 2 findings (LP001: 2) | 0 findings | 28 → 3 |
+
+The v0.4.3 line counts include the new summary line that says LP001 is off. In T2, the 21 LP002
+findings form 5 patterns, which matches the tester's "about 5 to 6 design decisions". LogPilot's
+own repository at v0.4.3 turns LP001 on in its config: 45 files, 0 findings, 1 suppressed.
 
 **Recorded for later, not built:** LP003 for Next.js API routes (T2); a lower LP003 severity in
 test helper files (T1); for LP003 in error middleware, placing the fix inside the branch that sends
@@ -758,7 +787,9 @@ What this shows:
 
 ## Current results: LP001 v2 (round 3, held-out)
 
-Round 3 measured **LP001 version 2** (Milestone 2.5) on knex and node-postgres. The three changes
+Round 3 measured **LP001 version 2** (Milestone 2.5) on knex and node-postgres. Detection unchanged
+since v2: version 3 (v0.4.3) changed only the suggestion text, so these numbers still apply. Since
+v0.4.3, LP001 is off by default. The three changes
 in version 2:
 
 - a comment lowers only confidence, never severity;
@@ -927,7 +958,7 @@ tuning data as soon as its results have been used to change a rule:
 | 2 (high severity needs positive evidence) | Vite, Mongoose | MongoDB Node.js driver (mature), 3 Express/MERN apps (beginner) |
 | 3 (LP001 v2, Milestone 2.5) | Vite, Mongoose, MongoDB driver, the 3 apps | knex, node-postgres: LP001 only; their LP002 findings were filtered out unseen |
 | LP003 (Milestone 2.5) | 4 Express apps chosen by `lp003-selection-protocol.md`, plus the 3 round-2 apps | 12 Express/MERN apps chosen by the same protocol; only their LP003 findings were looked at |
-| next | the above; LP001 is frozen at version 2 | knex and node-postgres stay unseen for LP002; new Express apps are needed for LP003 |
+| next | the above; LP001's detection is frozen at version 2 (version 3 changed only its suggestion text) | knex and node-postgres stay unseen for LP002; new Express apps are needed for LP003 |
 
 Express was scanned once before any tuning, as a sanity check; it has no findings (see below).
 
