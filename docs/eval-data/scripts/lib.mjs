@@ -75,6 +75,20 @@ export function uniqueFindings(source, doc = readDoc()) {
   return [...byKey.values()];
 }
 
+/**
+ * The 95% Wilson score interval for k successes out of n, as whole percentages, e.g. "76–97%".
+ * It is the range of true precision values that the measured k/n is compatible with: a small
+ * sample gives a wide range. (Wilson is used instead of "p ± 2 standard errors" because that one
+ * breaks down for small samples and for 0/n or n/n.)
+ */
+export function wilson(k, n, z = 1.959963984540054) {
+  const p = k / n;
+  const z2 = z * z;
+  const center = (p + z2 / (2 * n)) / (1 + z2 / n);
+  const half = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / (1 + z2 / n);
+  return `${Math.round(100 * Math.max(0, center - half))}–${Math.round(100 * Math.min(1, center + half))}%`;
+}
+
 /** Cohen's kappa for two labellers over the same items. */
 export function kappa(a, b) {
   const n = a.length;

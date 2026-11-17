@@ -15,22 +15,27 @@
 // to the scanned folder (for a single file: its folder). Before, paths were relative to the folder
 // LogPilot was run from, so they changed with it; that changes which values these keys hold.
 // Also added: `summary.filesWithExpressHandlers`.
+// Version 4 (v0.6.0, Milestone T, "default = proven only"): `config.rules` can now hold "proven" (the
+// default) besides "on" and "off", so the values a key holds changed. Also added: `setting` and
+// `provenLevels` for each rule (`enabled` = the rule ran: its setting is not "off"), and
+// `summary.hiddenNotProven` (findings hidden because their level is not proven, per rule).
 // Added in v0.4.3 (no version change, only new keys): `enabled` for each rule, `config.rules`,
 // `pattern` for each finding, and `summary.patterns`.
 
+import type { RuleSetting } from "./analyze.js";
 import { FIXABLE_RULES } from "./fixes.js";
 import { patternCount } from "./report.js";
 import type { ScanResult } from "./scanner.js";
 import type { FailOn } from "./severity.js";
 import type { Finding, FixPreview, ScanWarning, Severity } from "./types.js";
 
-export const JSON_SCHEMA_VERSION = 3;
+export const JSON_SCHEMA_VERSION = 4;
 
 /** What the JSON report needs besides the scan result: settings, rules and the outcome. */
 export interface JsonReportContext {
   toolVersion: string;
   /** Every rule, with whether it ran in this scan. */
-  rules: { id: string; name: string; version: number; enabled: boolean }[];
+  rules: { id: string; name: string; version: number; setting: RuleSetting; provenLevels: Severity[] }[];
   config: {
     /** The config file used, as shown to the user, or null. */
     file: string | null;
@@ -53,7 +58,14 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
   const report = {
     schemaVersion: JSON_SCHEMA_VERSION,
     tool: { name: "logpilot", version: context.toolVersion },
-    rules: context.rules.map((rule) => ({ id: rule.id, name: rule.name, version: rule.version, enabled: rule.enabled })),
+    rules: context.rules.map((rule) => ({
+      id: rule.id,
+      name: rule.name,
+      version: rule.version,
+      enabled: rule.setting !== "off",
+      setting: rule.setting,
+      provenLevels: [...rule.provenLevels],
+    })),
     config: {
       file: context.config.file,
       defaultExcludes: context.config.defaultExcludes,
@@ -63,7 +75,7 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
       fixPreview: context.config.fixPreview,
       // Every rule, "on" or "off" in this scan (after the defaults, the config file and --enable), in
       // the order of `rules`, so the output is the same on every run.
-      rules: Object.fromEntries(context.rules.map((rule) => [rule.id, rule.enabled ? "on" : "off"])),
+      rules: Object.fromEntries(context.rules.map((rule) => [rule.id, rule.setting])),
     },
     summary: {
       filesScanned: result.filesScanned,
@@ -72,6 +84,8 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
       findings: context.shown.length,
       // Distinct patterns among the shown findings (a finding without a pattern counts as one).
       patterns: patternCount(context.shown),
+      // Hidden because their rule and level are not proven on unseen code (every rule listed, also with 0).
+      hiddenNotProven: Object.fromEntries(context.rules.map((rule) => [rule.id, result.hiddenNotProven.filter((f) => f.ruleId === rule.id).length])),
       // Every known rule and every severity is listed, also with 0, so the keys never change.
       findingsByRule: Object.fromEntries(context.rules.map((rule) => [rule.id, context.shown.filter((f) => f.ruleId === rule.id).length])),
       findingsBySeverity: {

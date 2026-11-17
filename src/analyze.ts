@@ -7,55 +7,69 @@ import * as lp001 from "./rules/lp001-empty-catch.js";
 import * as lp002 from "./rules/lp002-lost-error-cause.js";
 import * as lp003 from "./rules/lp003-unlogged-error-response.js";
 import { applySuppressions, type SuppressionResult } from "./suppressions.js";
-import type { Finding } from "./types.js";
+import type { Finding, Severity } from "./types.js";
 
 /**
  * Every rule LogPilot has. `version` changes when a rule's behaviour changes (see the rule files).
- * `defaultEnabled`: whether the rule runs when neither the config file ("rules") nor --enable
- * says otherwise. A rule that is off by default says why in `offByDefaultReason` (shown in the
- * summary, so nobody mistakes "0 findings" for "checked and fine").
+ *
+ * `provenLevels` (Milestone T, "default = proven only"): the severities whose precision on code the
+ * rule was NOT designed on (a held-out measurement, docs/evaluation.md) is at least 70%. By default
+ * only findings at these levels are shown; the others are hidden and counted in the summary. A level
+ * is added here only after a NEW held-out measurement passes the gate, and removed when one fails.
  */
 export const RULES: {
   id: string;
   name: string;
   version: number;
-  defaultEnabled: boolean;
-  offByDefaultReason?: string;
+  provenLevels: readonly Severity[];
   check: (sourceFile: ts.SourceFile, filePath: string) => Finding[];
 }[] = [
-  {
-    id: lp001.RULE_ID,
-    name: lp001.RULE_NAME,
-    version: lp001.RULE_VERSION,
-    // v0.4.3: on real projects, most empty catches were deliberate (held-out: 3 of 25 real problems;
-    // early testers: 0 of 6), so LP001 is opt-in. See docs/evaluation.md.
-    defaultEnabled: false,
-    offByDefaultReason: "most empty catches are deliberate",
-    check: lp001.checkEmptyCatch,
-  },
-  { id: lp002.RULE_ID, name: lp002.RULE_NAME, version: lp002.RULE_VERSION, defaultEnabled: true, check: lp002.checkLostErrorCause },
-  { id: lp003.RULE_ID, name: lp003.RULE_NAME, version: lp003.RULE_VERSION, defaultEnabled: true, check: lp003.checkUnloggedErrorResponse },
+  // LP001: 3 of 25 real problems (12%), held-out round 3. No level passes.
+  { id: lp001.RULE_ID, name: lp001.RULE_NAME, version: lp001.RULE_VERSION, provenLevels: [], check: lp001.checkEmptyCatch },
+  // LP002: high 0/1, medium 1/3, low 1/9 (round 2); high 1/12 (round 1). No level passes.
+  { id: lp002.RULE_ID, name: lp002.RULE_NAME, version: lp002.RULE_VERSION, provenLevels: [], check: lp002.checkLostErrorCause },
+  // LP003: high 30/33 (91%) on 12 held-out apps. Case E (4xx, now low): 0/10.
+  { id: lp003.RULE_ID, name: lp003.RULE_NAME, version: lp003.RULE_VERSION, provenLevels: ["high"], check: lp003.checkUnloggedErrorResponse },
 ];
 export const KNOWN_RULE_IDS = RULES.map((rule) => rule.id);
 
-/** Every rule, on or off: what fix validation runs, so a fix can never create any finding. */
+/** Every rule: what fix validation runs, so a fix can never create any finding, shown or not. */
 export const ALL_RULE_IDS: ReadonlySet<string> = new Set(KNOWN_RULE_IDS);
 
-/** The rules that run when nothing turns a rule on or off. */
-export const DEFAULT_ENABLED_RULE_IDS: ReadonlySet<string> = new Set(RULES.filter((rule) => rule.defaultEnabled).map((rule) => rule.id));
+/**
+ * How a rule is used in a scan:
+ * - "proven" (the default): it runs, and only findings at its proven levels are shown; the others
+ *   are hidden and counted;
+ * - "on": it runs, and all its findings are shown;
+ * - "off": it does not run.
+ */
+export type RuleSetting = "proven" | "on" | "off";
+export const RULE_SETTINGS: readonly RuleSetting[] = ["proven", "on", "off"];
 
 /**
- * The rules that run: the defaults, then the config file's "rules" (`"on"`/`"off"`), then the
- * --enable flags, which win over the config file like every command-line option.
+ * Each rule's setting: "proven", then the config file's "rules", then --enable (which sets "on"
+ * and wins over the config file, like every command-line option).
  */
-export function enabledRuleIds(configRules: Readonly<Record<string, "on" | "off">> = {}, enable: readonly string[] = []): Set<string> {
-  const enabled = new Set(DEFAULT_ENABLED_RULE_IDS);
-  for (const [id, value] of Object.entries(configRules)) {
-    if (value === "on") enabled.add(id);
-    else enabled.delete(id);
-  }
-  for (const id of enable) enabled.add(id);
-  return enabled;
+export function ruleSettings(configRules: Readonly<Record<string, RuleSetting>> = {}, enable: readonly string[] = []): Map<string, RuleSetting> {
+  const settings = new Map<string, RuleSetting>(RULES.map((rule) => [rule.id, "proven"]));
+  for (const [id, value] of Object.entries(configRules)) settings.set(id, value);
+  for (const id of enable) settings.set(id, "on");
+  return settings;
+}
+
+/** Every rule "on": all findings of every rule (tests, and the self-scan of LogPilot's own code). */
+export const ALL_RULES_ON: ReadonlyMap<string, RuleSetting> = new Map(RULES.map((rule) => [rule.id, "on"]));
+
+/** The rules that run: every rule that is not "off". */
+export function rulesThatRun(settings: ReadonlyMap<string, RuleSetting>): Set<string> {
+  return new Set(RULES.filter((rule) => (settings.get(rule.id) ?? "proven") !== "off").map((rule) => rule.id));
+}
+
+/** Is this finding shown? Always for a rule that is "on"; for "proven", only at a proven level. */
+export function isShown(finding: Finding, settings: ReadonlyMap<string, RuleSetting>): boolean {
+  const setting = settings.get(finding.ruleId) ?? "proven";
+  if (setting === "on") return true;
+  return RULES.find((rule) => rule.id === finding.ruleId)?.provenLevels.includes(finding.severity) ?? false;
 }
 
 /**

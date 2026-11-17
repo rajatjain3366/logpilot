@@ -1,7 +1,8 @@
 // Recomputes the precision numbers in docs/evaluation.md from its per-finding tables (levels and
 // LP003 cases) and the published label files. Precision = TP / labelled findings; "Debatable" counts
-// as not TP. Usage, from the repository root: node docs/eval-data/scripts/precision.mjs
-import { readData, readDoc, sources, uniqueFindings } from "./lib.mjs";
+// as not TP. Each precision is followed by its 95% Wilson interval ("95% CI").
+// Usage, from the repository root: node docs/eval-data/scripts/precision.mjs
+import { readData, readDoc, sources, uniqueFindings, wilson } from "./lib.mjs";
 
 const doc = readDoc();
 const findings = (name) => {
@@ -13,7 +14,7 @@ const tally = (rows, isTP = (r) => r.label === "TP") => {
   if (rows.length === 0) return "no findings";
   const tp = rows.filter(isTP).length;
   const deb = rows.filter((r) => !isTP(r) && r.label === "Debatable").length;
-  return `${tp}/${rows.length} (${Math.round((100 * tp) / rows.length)}%)  [TP ${tp} / Debatable ${deb} / FP ${rows.length - tp - deb}]`;
+  return `${tp}/${rows.length} (${Math.round((100 * tp) / rows.length)}%; 95% CI ${wilson(tp, rows.length)})  [TP ${tp} / Debatable ${deb} / FP ${rows.length - tp - deb}]`;
 };
 const print = (title, rows, groups) => {
   console.log(`\n${title}`);
@@ -37,6 +38,8 @@ print("LP003 held-out (version 1)", lp003, [
   ["confidence high", (r) => r.confidence === "high"],
   ["confidence medium", (r) => r.confidence === "medium"],
   ["all", () => true],
+  // App P has one pattern repeated 17 times; without it, high severity is measured on 10 apps.
+  ["high, without App P", (r) => r.severity === "high" && !r.key.startsWith("app-p/")],
 ]);
 
 // LP003 under three views of the second-labeller check.

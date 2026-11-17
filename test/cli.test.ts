@@ -12,6 +12,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const cliPath = path.join(projectRoot, "dist", "cli.js");
 const fixturesDir = path.join(projectRoot, "test", "fixtures");
+/** Every rule fully on (v0.6.0: by default only proven levels are shown), for tests of what the rules report. */
+const ALL_ON = ["--enable", "LP001", "--enable", "LP002", "--enable", "LP003"];
 
 /** Runs `node dist/cli.js <args>` and captures what it printed and its exit code. */
 function runCli(args: string[], cwd: string = projectRoot) {
@@ -92,11 +94,14 @@ describe("CLI: help, version and usage errors", () => {
 // CHANGED ON PURPOSE (v0.4.2): the tests that scan this repository's own fixtures pass --no-config.
 // CHANGED ON PURPOSE (v0.4.3): they also pass --enable LP001 (off by default), so LP001 is still
 // checked end to end on the fixtures.
+// CHANGED ON PURPOSE (v0.6.0): the scans that check every rule's findings turn all rules fully on
+// (ALL_ON), because by default only proven levels are shown (LP002 and LP003 at low are hidden).
+// Their expected output is unchanged. What the default shows is tested in "CLI: default = proven only".
 // LogPilot's logpilot.config.json (at the repository root, so LogPilot can scan itself) excludes
 // test/fixtures/**, and these tests are about what the rules report, not about that config.
 describe("CLI: scan", () => {
   it("exits 0 with '0 findings' when the code handles its errors (all rules run)", () => {
-    const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", "test/fixtures/negative", "--no-config"]);
+    const { exitCode, stdout, stderr } = runCli(["scan", ...ALL_ON, "test/fixtures/negative", "--no-config"]);
 
     expect(exitCode).toBe(0);
     // 7 files written for LP001 + 3 for LP002 + 1 for LP003 (added in Milestone 2.5); no rule may
@@ -106,7 +111,7 @@ describe("CLI: scan", () => {
   });
 
   it("prints every finding when there are problems, and exits 0 by default (warning-only)", () => {
-    const { exitCode, stdout, stderr } = runCli(["scan", "--enable", "LP001", "test/fixtures/positive", "--no-config"]);
+    const { exitCode, stdout, stderr } = runCli(["scan", ...ALL_ON, "test/fixtures/positive", "--no-config"]);
 
     // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none", so findings alone
     // exit 0. Exit code 1 with --fail-on is tested in "CLI: severity filtering and --fail-on".
@@ -122,7 +127,7 @@ describe("CLI: scan", () => {
     // CHANGED ON PURPOSE (Milestone 2.5): a comment lowers only confidence (severity was "low").
     expect(stdout).toContain("  LP001 empty-catch | severity: medium | confidence: medium\n"); // comment-only (rule 1)
     // CHANGED ON PURPOSE (v0.4.3): checked in --verbose output, where every finding is shown in full.
-    const verbose = runCli(["scan", "--enable", "LP001", "test/fixtures/positive", "--no-config", "--verbose"]).stdout;
+    const verbose = runCli(["scan", ...ALL_ON, "test/fixtures/positive", "--no-config", "--verbose"]).stdout;
     expect(verbose).toContain("\nempty-catch.ts:9:5\n");
     expect(verbose).toContain("    9 |   } catch (err) {}\n"); // gutter is as wide as the largest line number shown
     expect(stdout).toContain("\nlp002-message-only.js:10:5\n");
@@ -139,7 +144,7 @@ describe("CLI: scan", () => {
   });
 
   it("scans the whole fixtures folder (edge + negative + positive)", () => {
-    const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "test/fixtures", "--no-config"]);
+    const { exitCode, stdout } = runCli(["scan", ...ALL_ON, "test/fixtures", "--no-config"]);
 
     // EXIT CODE CHANGED ON PURPOSE (Milestone 2): --fail-on defaults to "none" (was 1 with findings).
     expect(exitCode).toBe(0);
@@ -173,7 +178,7 @@ describe("CLI: scan", () => {
   });
 
   it("scans the current folder when no path is given", () => {
-    const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "--no-config"], path.join(fixturesDir, "negative"));
+    const { exitCode, stdout } = runCli(["scan", ...ALL_ON, "--no-config"], path.join(fixturesDir, "negative"));
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe("Scanned 11 files, 0 findings\n"); // 10 + LP003's negative fixture (Milestone 2.5)
@@ -191,7 +196,7 @@ describe("CLI: scan", () => {
     const before = fingerprintFolder(fixturesDir);
     // CHANGED ON PURPOSE (Milestone 2): findings alone now exit 0, so "--fail-on low" is passed to
     // keep using exit code 1 as proof that the scan really ran and found the positives.
-    const { exitCode } = runCli(["scan", "--enable", "LP001", "test/fixtures", "--no-config", "--fail-on", "low"]);
+    const { exitCode } = runCli(["scan", ...ALL_ON, "test/fixtures", "--no-config", "--fail-on", "low"]);
     const after = fingerprintFolder(fixturesDir);
 
     expect(exitCode).toBe(1); // the scan really ran and found the positives
@@ -204,7 +209,7 @@ describe("CLI: scan", () => {
 
   it("does not create, delete or modify any file with --fix-preview either (fixes are only shown)", () => {
     const before = fingerprintFolder(fixturesDir);
-    const { exitCode, stdout } = runCli(["scan", "--enable", "LP001", "test/fixtures", "--no-config", "--fix-preview", "--fail-on", "low"]);
+    const { exitCode, stdout } = runCli(["scan", ...ALL_ON, "test/fixtures", "--no-config", "--fix-preview", "--fail-on", "low"]);
     const after = fingerprintFolder(fixturesDir);
 
     expect(exitCode).toBe(1);
@@ -510,7 +515,8 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
       const report = JSON.parse(stdout);
       // CHANGED ON PURPOSE (Milestone 3): schema version 2 adds fix, config.fixPreview and summary.fixes.
       // CHANGED ON PURPOSE (v0.4.2): schema version 3: paths are relative to the scanned folder.
-      expect(report.schemaVersion).toBe(3);
+      // CHANGED ON PURPOSE (v0.6.0): schema version 4: config.rules can hold "proven".
+      expect(report.schemaVersion).toBe(4);
       // CHANGED ON PURPOSE (Milestone 2.5): LP001 changed behaviour, so its version went from 1 to 2.
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 was added.
       // CHANGED ON PURPOSE (Milestone 2.5): LP003 case E severity went from medium to low: version 1 -> 2.
@@ -518,12 +524,14 @@ describe("CLI: JSON output and --output (Milestone 2)", () => {
       // of req.path: version 2 -> 3.
       // CHANGED ON PURPOSE (v0.4.3): LP001's suggestion text changed in v0.4.2: version 2 -> 3
       // (detection unchanged). Each rule now says whether it ran (`enabled`).
+      // CHANGED ON PURPOSE (v0.6.0): each rule also has its `setting` and its `provenLevels`.
       expect(report.rules).toEqual([
-        { id: "LP001", name: "empty-catch", version: 3, enabled: true }, // --enable LP001
-        { id: "LP002", name: "lost-error-cause", version: 1, enabled: true },
-        { id: "LP003", name: "unlogged-error-response", version: 3, enabled: true },
+        { id: "LP001", name: "empty-catch", version: 3, enabled: true, setting: "on", provenLevels: [] }, // --enable LP001
+        { id: "LP002", name: "lost-error-cause", version: 1, enabled: true, setting: "proven", provenLevels: [] },
+        { id: "LP003", name: "unlogged-error-response", version: 3, enabled: true, setting: "proven", provenLevels: ["high"] },
       ]);
-      expect(report.config.rules).toEqual({ LP001: "on", LP002: "on", LP003: "on" });
+      // CHANGED ON PURPOSE (v0.6.0): the default is "proven" (was "on").
+      expect(report.config.rules).toEqual({ LP001: "on", LP002: "proven", LP003: "proven" });
       expect(report.summary.filesScanned).toBe(3);
       expect(report.findings.map((f: { file: string; line: number }) => `${f.file}:${f.line}`)).toEqual(["src/app.js:1"]);
       expect(report.suppressed[0].reason).toBe("the cache is optional");
@@ -651,11 +659,14 @@ describe("CLI: --fix-preview (Milestone 3)", () => {
   it("shows the reason when there is no fix, and shows nothing about fixes without the flag", () => {
     const clientError = HANDLER.replace("res.status(500)", "res.status(401)");
     withProject({ "src/app.js": clientError }, (dir) => {
-      const withFlag = runCli(["scan", ".", "--fix-preview"], dir);
+      // CHANGED ON PURPOSE (v0.6.0): a 4xx answer (case E) is LP003 at low severity, which is not shown
+      // by default any more, so the scans pass --enable LP003 to show it.
+      const withFlag = runCli(["scan", ".", "--enable", "LP003", "--fix-preview"], dir);
       expect(withFlag.stdout).toContain("  No fix proposed: No fix for a 4xx answer (case E).");
       expect(withFlag.stdout).toContain("Fix previews (LP003 only): 0 available, 1 not available.");
 
-      const withoutFlag = runCli(["scan", "."], dir);
+      const withoutFlag = runCli(["scan", ".", "--enable", "LP003"], dir);
+      expect(withoutFlag.stdout).toContain("Scanned 1 file, 1 finding (LP003: 1)\n"); // the finding really is shown
       expect(withoutFlag.stdout).not.toMatch(/fix proposed|Proposed fix|Fix previews/i);
     });
   });
@@ -833,57 +844,75 @@ describe("CLI: says when no Express handler was found (v0.4.2)", () => {
   });
 });
 
-// v0.4.3: LP001 is off by default; "rules" in the config file and --enable turn rules on or off.
-describe("CLI: rules on and off (v0.4.3)", () => {
-  const files = { "a.js": EMPTY_CATCH, "b.js": 'try { load(); } catch (err) { throw new Error("load failed"); }\n' };
-  const offLine =
-    'LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with "rules": { "LP001": "on" } ' +
-    "in logpilot.config.json, or --enable LP001.\n";
+// CHANGED ON PURPOSE (v0.6.0, Milestone T): this block replaces "CLI: rules on and off (v0.4.3)".
+// LP001 is no longer a special "off by default" rule: every rule is "proven" by default, which shows
+// only its levels proven on unseen code (today: LP003 at high severity), and hides and counts the rest.
+// "on" (config or --enable) shows everything; "off" does not run the rule.
+describe("CLI: default = proven only (v0.6.0)", () => {
+  const handler = (status: number) =>
+    `const app = require("express")();\napp.get("/", async (req, res) => {\n  try { res.json(await load()); } catch (err) { res.status(${status}).json({ message: "failed" }); }\n});\n`;
+  const files = {
+    "a.js": EMPTY_CATCH, //                                                              LP001 (medium)
+    "b.js": 'try { load(); } catch (err) { throw new Error("load failed"); }\n', //       LP002
+    "c.js": handler(500), //                                                             LP003 high (proven)
+    "d.js": handler(401), //                                                             LP003 low (case E, 4xx)
+  };
+  const hiddenLine = (parts: string, count: string) =>
+    `Hidden, not proven on unseen code yet: ${count} (${parts}).\n` +
+    'Show them with --enable <rule>, or "rules": { "<rule>": "on" } in logpilot.config.json.\n';
 
-  it("does not run LP001 by default, and says so once in the summary", () => {
+  it("shows only LP003 at high severity by default, and counts the hidden findings in one summary line", () => {
     withProject(files, (dir) => {
-      const { exitCode, stdout } = runCli(["scan", "."], dir);
+      const { exitCode, stdout, stderr } = runCli(["scan", "."], dir);
 
-      expect(exitCode).toBe(0);
-      expect(stdout).not.toContain("LP001 empty-catch |");
-      expect(stdout.endsWith(`Scanned 2 files, 1 finding (LP002: 1)\nNo Express handlers found: LP003 and fix previews only check Express apps.\n${offLine}`)).toBe(true);
+      expect([exitCode, stderr]).toEqual([0, ""]);
+      expect(stdout.startsWith("c.js:3:")).toBe(true); // the only finding shown
+      expect(stdout).not.toMatch(/^[abd]\.js:/m);
+      expect(stdout.endsWith(`Scanned 4 files, 1 finding (LP003: 1)\n${hiddenLine("LP001: 1, LP002: 1, LP003 at low severity: 1", "3 findings")}`)).toBe(true);
     });
   });
 
-  it("--fail-on no longer fails on an empty catch by default (it did before v0.4.3), only with LP001 on", () => {
-    withProject({ "a.js": EMPTY_CATCH }, (dir) => {
+  it("hidden findings never make --fail-on fail; shown ones do", () => {
+    withProject({ "a.js": files["a.js"], "b.js": files["b.js"], "d.js": files["d.js"] }, (dir) => {
       expect(runCli(["scan", ".", "--fail-on", "low"], dir).exitCode).toBe(0);
-      expect(runCli(["scan", ".", "--fail-on", "low", "--enable", "LP001"], dir).exitCode).toBe(1);
+      expect(runCli(["scan", ".", "--fail-on", "low", "--enable", "LP002"], dir).exitCode).toBe(1);
+      expect(runCli(["scan", ".", "--fail-on", "low", "--enable", "LP003"], dir).exitCode).toBe(1);
+    });
+    withProject({ "c.js": files["c.js"] }, (dir) => {
+      expect(runCli(["scan", ".", "--fail-on", "high"], dir).exitCode).toBe(1); // proven: shown, so it counts
     });
   });
 
-  it("turns LP001 on with --enable or with the config file, and then does not print the line", () => {
+  it('shows all findings of a rule with --enable or "on" in the config file; the line counts only what is still hidden', () => {
     withProject(files, (dir) => {
-      const flag = runCli(["scan", ".", "--enable", "LP001"], dir).stdout;
-      expect(flag).toContain("Scanned 2 files, 2 findings (LP001: 1, LP002: 1)\n");
-      expect(flag).not.toContain("off by default");
+      const flag = runCli(["scan", ".", "--enable", "LP002", "--enable", "LP003"], dir).stdout;
+      expect(flag).toContain(`Scanned 4 files, 3 findings (LP002: 1, LP003: 2)\n${hiddenLine("LP001: 1", "1 finding")}`);
+      const all = runCli(["scan", ".", ...ALL_ON], dir).stdout;
+      expect(all.endsWith("Scanned 4 files, 4 findings (LP001: 1, LP002: 1, LP003: 2)\n")).toBe(true);
+      expect(all).not.toContain("not proven");
     });
-    withProject({ ...files, "logpilot.config.json": '{ "rules": { "LP001": "on" } }' }, (dir) => {
+    withProject({ ...files, "logpilot.config.json": '{ "rules": { "LP001": "on", "LP002": "on", "LP003": "on" } }' }, (dir) => {
       const config = runCli(["scan", "."], dir).stdout;
-      expect(config).toContain("Scanned 2 files, 2 findings (LP001: 1, LP002: 1)\n");
-      expect(config).not.toContain("off by default");
+      expect(config.endsWith("Scanned 4 files, 4 findings (LP001: 1, LP002: 1, LP003: 2)\nConfig file: logpilot.config.json\n")).toBe(true);
     });
   });
 
-  it("does not print the line when the config file turns LP001 off on purpose; --enable wins over the config file", () => {
-    withProject({ ...files, "logpilot.config.json": '{ "rules": { "LP001": "off", "LP002": "off" } }' }, (dir) => {
+  it('"proven" in the config file is the default; "off" does not run a rule (nothing hidden, nothing counted); --enable wins', () => {
+    withProject(files, (dir) => {
+      const byDefault = runCli(["scan", "."], dir).stdout;
+      writeFileSync(path.join(dir, "logpilot.config.json"), '{ "rules": { "LP001": "proven", "LP002": "proven", "LP003": "proven" } }');
+      expect(runCli(["scan", "."], dir).stdout).toBe(`${byDefault}Config file: logpilot.config.json\n`);
+
+      writeFileSync(path.join(dir, "logpilot.config.json"), '{ "rules": { "LP001": "off", "LP002": "off", "LP003": "off" } }');
       const off = runCli(["scan", "."], dir).stdout;
-      expect(off).toContain("Scanned 2 files, 0 findings\n");
-      expect(off).not.toContain("off by default");
+      expect(off.endsWith("Scanned 4 files, 0 findings\nConfig file: logpilot.config.json\n")).toBe(true);
+      expect(off).not.toContain("not proven");
 
-      expect(runCli(["scan", ".", "--enable", "LP001"], dir).stdout).toContain("Scanned 2 files, 1 finding (LP001: 1)\n");
-      expect(runCli(["scan", ".", "--enable", "LP001", "--enable", "LP002"], dir).stdout).toContain(
-        "Scanned 2 files, 2 findings (LP001: 1, LP002: 1)\n",
-      );
+      expect(runCli(["scan", ".", "--enable", "LP002"], dir).stdout).toContain("Scanned 4 files, 1 finding (LP002: 1)\nConfig file:");
     });
   });
 
-  it("rejects an unknown rule in --enable (exit code 2), and in the config file", () => {
+  it("rejects an unknown rule in --enable (exit code 2), and an unknown value in the config file", () => {
     withProject(files, (dir) => {
       const unknown = runCli(["scan", ".", "--enable", "LP009"], dir);
       expect([unknown.exitCode, unknown.stdout]).toEqual([2, ""]);
@@ -891,33 +920,38 @@ describe("CLI: rules on and off (v0.4.3)", () => {
     });
     withProject({ ...files, "logpilot.config.json": '{ "rules": { "LP001": "yes" } }' }, (dir) => {
       const bad = runCli(["scan", "."], dir);
-      expect([bad.exitCode, bad.stderr]).toEqual([2, 'Error: logpilot.config.json: "rules": "LP001" must be "on" or "off"\n']);
+      expect([bad.exitCode, bad.stderr]).toEqual([2, 'Error: logpilot.config.json: "rules": "LP001" must be "proven", "on" or "off"\n']);
     });
   });
 
-  it("writes rules[].enabled and config.rules in JSON (schema version stays 3)", () => {
+  it("writes each rule's setting and proven levels, and the hidden counts, in JSON (schema version 4)", () => {
     withProject(files, (dir) => {
-      const report = JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout);
+      const report = JSON.parse(runCli(["scan", ".", "--enable", "LP001", "--format", "json"], dir).stdout);
 
-      expect(report.schemaVersion).toBe(3);
-      expect(report.rules.map((r: { id: string; enabled: boolean }) => [r.id, r.enabled])).toEqual([
-        ["LP001", false],
-        ["LP002", true],
-        ["LP003", true],
+      expect(report.schemaVersion).toBe(4);
+      expect(report.rules.map((r: { id: string; enabled: boolean; setting: string; provenLevels: string[] }) => [r.id, r.enabled, r.setting, r.provenLevels])).toEqual([
+        ["LP001", true, "on", []],
+        ["LP002", true, "proven", []],
+        ["LP003", true, "proven", ["high"]],
       ]);
-      expect(report.config.rules).toEqual({ LP001: "off", LP002: "on", LP003: "on" });
-      expect(report.summary.findingsByRule).toEqual({ LP001: 0, LP002: 1, LP003: 0 });
+      expect(report.config.rules).toEqual({ LP001: "on", LP002: "proven", LP003: "proven" });
+      expect(report.summary.findingsByRule).toEqual({ LP001: 1, LP002: 0, LP003: 1 });
+      expect(report.summary.hiddenNotProven).toEqual({ LP001: 0, LP002: 1, LP003: 1 });
+      expect(report.findings.map((f: { file: string }) => f.file)).toEqual(["a.js", "c.js"]);
     });
   });
 
-  it("documents --enable and the rules in --help", () => {
+  it("documents --enable and what is proven in --help", () => {
     const { stdout } = runCli(["--help"]);
     expect(stdout).toContain("--enable <rule>");
-    expect(stdout).toContain("LP001 empty-catch (off by default)");
+    expect(stdout).toContain("By default only findings proven accurate on unseen code are shown: today LP003 at high severity.\n");
+    expect(stdout).not.toContain("off by default");
   });
 });
 
 // v0.4.3: findings with the same pattern are listed under the first one (LP001 and LP002).
+// CHANGED ON PURPOSE (v0.6.0): these tests use LP002 findings, which are not shown by default any
+// more, so their scans pass --enable LP002 (except the LP003 one).
 describe("CLI: repeated patterns (v0.4.3)", () => {
   const thrower = (cls: string, msg: string) => `try { load(); } catch (err) { throw new ${cls}("${msg}"); }\n`;
   const files = {
@@ -929,7 +963,7 @@ describe("CLI: repeated patterns (v0.4.3)", () => {
 
   it("lists every location of a pattern under its first finding, and counts patterns in the summary", () => {
     withProject(files, (dir) => {
-      const { stdout } = runCli(["scan", "."], dir);
+      const { stdout } = runCli(["scan", ".", "--enable", "LP002"], dir);
 
       expect(stdout).toContain("  Same pattern in 2 more places (throw new ApiError(...) without the caught error):\n    b.js:1:31\n    c.js:1:31\n");
       expect(stdout).not.toMatch(/^b\.js:1:31$/m); // not printed again on its own
@@ -940,7 +974,7 @@ describe("CLI: repeated patterns (v0.4.3)", () => {
 
   it("--verbose shows every finding in full", () => {
     withProject(files, (dir) => {
-      const { stdout } = runCli(["scan", ".", "--verbose"], dir);
+      const { stdout } = runCli(["scan", ".", "--enable", "LP002", "--verbose"], dir);
 
       expect(stdout).not.toContain("Same pattern");
       expect(stdout).toMatch(/^b\.js:1:31$/m);
@@ -950,14 +984,14 @@ describe("CLI: repeated patterns (v0.4.3)", () => {
 
   it("gives each finding a stable pattern ID in JSON, and counts patterns", () => {
     withProject(files, (dir) => {
-      const report = JSON.parse(runCli(["scan", ".", "--format", "json"], dir).stdout);
+      const report = JSON.parse(runCli(["scan", ".", "--enable", "LP002", "--format", "json"], dir).stdout);
       const ids = report.findings.map((f: { pattern: string }) => f.pattern);
 
       expect(ids[0]).toMatch(/^LP002-[0-9a-f]{8}$/);
       expect(ids.slice(0, 3)).toEqual([ids[0], ids[0], ids[0]]);
       expect(ids[3]).not.toBe(ids[0]);
       expect(report.summary.patterns).toBe(2);
-      expect(runCli(["scan", ".", "--format", "json"], dir).stdout).toBe(JSON.stringify(report, null, 2) + "\n"); // same every run
+      expect(runCli(["scan", ".", "--enable", "LP002", "--format", "json"], dir).stdout).toBe(JSON.stringify(report, null, 2) + "\n"); // same every run
     });
   });
 

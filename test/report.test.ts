@@ -22,7 +22,7 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
 
 describe("formatReport", () => {
   it("shows location, rule, severity, confidence, numbered evidence, explanation, fix and summary", () => {
-    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, findings: [makeFinding()], suppressed: [], warnings: [], skipped: [] });
+    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, hiddenNotProven: [], findings: [makeFinding()], suppressed: [], warnings: [], skipped: [] });
 
     expect(report).toBe(
       [
@@ -42,26 +42,26 @@ describe("formatReport", () => {
   });
 
   it("prints only the summary when there are no findings", () => {
-    expect(formatReport({ filesScanned: 4, filesWithExpressHandlers: 4, findings: [], suppressed: [], warnings: [], skipped: [] })).toBe("Scanned 4 files, 0 findings\n");
+    expect(formatReport({ filesScanned: 4, filesWithExpressHandlers: 4, hiddenNotProven: [], findings: [], suppressed: [], warnings: [], skipped: [] })).toBe("Scanned 4 files, 0 findings\n");
   });
 
   it("counts findings per rule in the summary", () => {
     const findings = [makeFinding(), makeFinding({ line: 20 })];
-    const report = formatReport({ filesScanned: 2, filesWithExpressHandlers: 2, findings, suppressed: [], warnings: [], skipped: [] });
+    const report = formatReport({ filesScanned: 2, filesWithExpressHandlers: 2, hiddenNotProven: [], findings, suppressed: [], warnings: [], skipped: [] });
 
     expect(report.endsWith("Scanned 2 files, 2 findings (LP001: 2)\n")).toBe(true);
   });
 
   it("lists the per-rule counts in rule order, whichever rule was found first", () => {
     const findings = [makeFinding({ ruleId: "LP002" }), makeFinding(), makeFinding({ ruleId: "LP002" })];
-    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, findings, suppressed: [], warnings: [], skipped: [] });
+    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, hiddenNotProven: [], findings, suppressed: [], warnings: [], skipped: [] });
 
     expect(report.endsWith("Scanned 1 file, 3 findings (LP001: 1, LP002: 2)\n")).toBe(true);
   });
 
   it("word-wraps long text at 100 columns, indenting continuation lines", () => {
     const longText = "word ".repeat(60).trim(); // 299 characters
-    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, findings: [makeFinding({ explanation: longText })], suppressed: [], warnings: [], skipped: [] });
+    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, hiddenNotProven: [], findings: [makeFinding({ explanation: longText })], suppressed: [], warnings: [], skipped: [] });
     const whyLines = report.split("\n").filter((l) => l.startsWith("  Why:") || l.startsWith("       word"));
 
     expect(whyLines.length).toBeGreaterThan(1);
@@ -76,7 +76,7 @@ describe("formatReport: syntax errors (Milestone 2)", () => {
     const warning = (file: string) => ({ type: "syntax-error" as const, file, line: 1, message: `${file}: ...` });
     const report = formatReport({
       filesScanned: 3,
-      filesWithExpressHandlers: 3,
+      filesWithExpressHandlers: 3, hiddenNotProven: [],
       findings: [],
       suppressed: [], warnings: [warning("a.js"), warning("b.js"), { type: "read-error", file: "c.js", message: "could not read c.js" }],
       skipped: [],
@@ -96,7 +96,7 @@ describe("formatReport: what was not scanned (Milestone 2)", () => {
   ];
 
   it("adds a 'Not scanned' line with counts by reason and a hint", () => {
-    const report = formatReport({ filesScanned: 4, filesWithExpressHandlers: 4, findings: [], suppressed: [], warnings: [], skipped });
+    const report = formatReport({ filesScanned: 4, filesWithExpressHandlers: 4, hiddenNotProven: [], findings: [], suppressed: [], warnings: [], skipped });
 
     expect(report).toBe(
       "Scanned 4 files, 0 findings\n" +
@@ -107,7 +107,7 @@ describe("formatReport: what was not scanned (Milestone 2)", () => {
   it("keeps the --show-skipped list readable for very long paths (no padded column)", () => {
     const longPath = `test/fixtures/${"deeply/".repeat(12)}node_modules`;
     const report = formatReport(
-      { filesScanned: 0, filesWithExpressHandlers: 0, findings: [], suppressed: [], warnings: [], skipped: [{ path: longPath, kind: "folder", reason: "default-folder", detail: "dependencies, never scanned" }] },
+      { filesScanned: 0, filesWithExpressHandlers: 0, hiddenNotProven: [], findings: [], suppressed: [], warnings: [], skipped: [{ path: longPath, kind: "folder", reason: "default-folder", detail: "dependencies, never scanned" }] },
       { showSkipped: true },
     );
 
@@ -115,7 +115,7 @@ describe("formatReport: what was not scanned (Milestone 2)", () => {
   });
 
   it("lists every skipped path with its reason when asked to (--show-skipped)", () => {
-    const report = formatReport({ filesScanned: 4, filesWithExpressHandlers: 4, findings: [], suppressed: [], warnings: [], skipped }, { showSkipped: true });
+    const report = formatReport({ filesScanned: 4, filesWithExpressHandlers: 4, hiddenNotProven: [], findings: [], suppressed: [], warnings: [], skipped }, { showSkipped: true });
 
     expect(report).toBe(
       [
@@ -151,7 +151,7 @@ describe("formatReport: width (Milestone 3)", () => {
       ruleId: "LP003",
       fix: { status: "available", description: "Log it.", notes: [], edits: [], diff },
     });
-    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, findings: [finding], suppressed: [], warnings: [], skipped: [] }, { width: 60, fixPreview: true });
+    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, hiddenNotProven: [], findings: [finding], suppressed: [], warnings: [], skipped: [] }, { width: 60, fixPreview: true });
     const lines = report.split("\n");
 
     for (const line of lines.filter((l) => l.includes("word"))) expect(line.length).toBeLessThanOrEqual(60);
@@ -175,7 +175,7 @@ describe("formatReport: concise output by default, full text with --verbose (Mil
     // Another kind (different second sentence): full text again.
     makeFinding({ ruleId: "LP003", line: 40, explanation: "This catch sends the error to the client. Your logs keep nothing.", suggestion }),
   ];
-  const result = { filesScanned: 2, filesWithExpressHandlers: 2, findings, suppressed: [], warnings: [], skipped: [] };
+  const result = { filesScanned: 2, filesWithExpressHandlers: 2, hiddenNotProven: [], findings, suppressed: [], warnings: [], skipped: [] };
   const whyAndFix = (report: string) => report.split("\n").filter((l) => /^ {2}(Why|Fix|Why and fix):/.test(l));
 
   it("prints the full text the first time a rule and case appear, then one line that points back to it", () => {
@@ -212,7 +212,7 @@ describe("formatReport: concise output by default, full text with --verbose (Mil
         },
       });
     const noFix = (line: number) => makeFinding({ ruleId: "LP003", line, fix: { status: "not-available", reason: "No fix for a 4xx answer.", notes: [], edits: [] } });
-    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, findings: [fix(10), fix(20), noFix(30), noFix(40)], suppressed: [], warnings: [], skipped: [] }, { fixPreview: true });
+    const report = formatReport({ filesScanned: 1, filesWithExpressHandlers: 1, hiddenNotProven: [], findings: [fix(10), fix(20), noFix(30), noFix(40)], suppressed: [], warnings: [], skipped: [] }, { fixPreview: true });
 
     expect(report).toContain("    Logger: console.error (confidence low: no logger)");
     expect(report).toContain("    Logger: same as for line 10 above.");
@@ -231,7 +231,7 @@ describe("formatReport: repeated patterns (v0.4.3)", () => {
   const TextOnly = { id: "LP002-bbbbbbbb", label: "throw new Error(...) that keeps only the caught error's text" };
   const lp002 = (file: string, line: number, pattern = ApiError) =>
     makeFinding({ ruleId: "LP002", ruleName: "lost-error-cause", file, line, evidence: `    throw new X("${file}:${line}");`, pattern });
-  const result = (findings: Finding[]) => ({ filesScanned: 3, filesWithExpressHandlers: 0, findings, suppressed: [], warnings: [], skipped: [] });
+  const result = (findings: Finding[]) => ({ filesScanned: 3, filesWithExpressHandlers: 0, hiddenNotProven: [], findings, suppressed: [], warnings: [], skipped: [] });
 
   it("shows the first finding of a pattern in full and lists every other location under it", () => {
     const findings = [lp002("a.ts", 3), lp002("a.ts", 9, TextOnly), lp002("b.ts", 4), lp002("c.ts", 7)];
@@ -289,22 +289,26 @@ describe("formatReport: repeated patterns (v0.4.3)", () => {
   });
 });
 
-describe("formatReport: rules that are off by default (v0.4.3)", () => {
-  const off = [{ id: "LP001", name: "empty-catch", reason: "most empty catches are deliberate" }];
-  const line =
-    'LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with "rules": { "LP001": "on" } ' +
-    "in logpilot.config.json, or --enable LP001.";
+// CHANGED ON PURPOSE (Milestone T, v0.6.0): the v0.4.3 line "LP001 is off by default" is replaced
+// by one line that counts every finding hidden because its rule and level are not proven yet.
+describe("formatReport: findings hidden because not proven (Milestone T)", () => {
+  const empty = { filesScanned: 2, filesWithExpressHandlers: 2, findings: [], suppressed: [], warnings: [], skipped: [] };
+  const hidden = [
+    makeFinding({ ruleId: "LP002", severity: "high" }),
+    makeFinding({ ruleId: "LP002", severity: "low" }),
+    makeFinding({ ruleId: "LP003", severity: "low" }),
+    makeFinding({ ruleId: "LP001", severity: "medium" }),
+  ];
 
-  it("says once in the summary that a rule is off by default, and how to turn it on", () => {
-    const report = formatReport({ filesScanned: 2, filesWithExpressHandlers: 2, findings: [], suppressed: [], warnings: [], skipped: [] }, { offByDefault: off });
-
-    expect(report).toBe(`Scanned 2 files, 0 findings\n${line}\n`);
+  it("counts the hidden findings per rule (naming the hidden levels of a rule with proven levels) and says how to show them", () => {
+    expect(formatReport({ ...empty, hiddenNotProven: hidden })).toBe(
+      "Scanned 2 files, 0 findings\n" +
+        "Hidden, not proven on unseen code yet: 4 findings (LP001: 1, LP002: 2, LP003 at low severity: 1).\n" +
+        'Show them with --enable <rule>, or "rules": { "<rule>": "on" } in logpilot.config.json.\n',
+    );
   });
 
-  it("says nothing when no rule is off by default, or when nothing was scanned", () => {
-    expect(formatReport({ filesScanned: 2, filesWithExpressHandlers: 2, findings: [], suppressed: [], warnings: [], skipped: [] })).toBe("Scanned 2 files, 0 findings\n");
-    expect(formatReport({ filesScanned: 0, filesWithExpressHandlers: 0, findings: [], suppressed: [], warnings: [], skipped: [] }, { offByDefault: off })).toBe(
-      "Scanned 0 files, 0 findings\n",
-    );
+  it("says nothing when no finding was hidden", () => {
+    expect(formatReport({ ...empty, hiddenNotProven: [] })).toBe("Scanned 2 files, 0 findings\n");
   });
 });

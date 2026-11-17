@@ -64,7 +64,7 @@ Run them from the repository root with Node.js 22.20 or newer. They need no `npm
 
 ```bash
 node docs/eval-data/scripts/check-doc.mjs                # evaluation.md tables vs labels, sealed files, hashes
-node docs/eval-data/scripts/precision.mjs                # precision per round, severity, LP003 case and view
+node docs/eval-data/scripts/precision.mjs                # precision per round, severity, LP003 case and view, each with its 95% Wilson interval
 node docs/eval-data/scripts/second-labeller-compare.mjs  # agreement and Cohen's kappa of both checks
 ```
 

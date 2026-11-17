@@ -45,8 +45,9 @@ are no wrong answers, and nothing you send is shared with your name.
    instead of `node` (see [Troubleshooting](../README.md#troubleshooting)).
 
    The last lines of `logpilot-report.txt` say how many files were scanned and how many findings
-   there are. Zero findings is a useful answer too. Since v0.4.3, empty catches (LP001) are not
-   reported unless you add `--enable LP001`.
+   there are. Zero findings is a useful answer too. Since v0.6.0, LogPilot shows by default only
+   the findings proven accurate on unseen code (today: LP003 at high severity); a summary line
+   counts the others. To see them all, add `--enable LP001 --enable LP002 --enable LP003`.
 
 3. Open `logpilot-report.txt`. For **each finding**, read the "Why" and "Fix" lines and look at
    your code at the `file:line` shown. When several findings have the same pattern, the report

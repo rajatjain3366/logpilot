@@ -43,8 +43,8 @@ Continuous integration ([.github/workflows/ci.yml](.github/workflows/ci.yml)) ru
 `npm test` on every push to `main` and every pull request, on Node 22 and 24, on Ubuntu and
 Windows. Then LogPilot scans its own code: `node dist/cli.js scan . --fail-on low` must report 0
 findings. [logpilot.config.json](logpilot.config.json) excludes `test/fixtures/**` (code written
-to be reported) and turns LP001 on (off by default since v0.4.3), so empty catches in LogPilot's
-own code are still checked. If your change adds a finding in LogPilot's own code, fix it, or suppress it with
+to be reported) and turns every rule fully on (`"on"`; by default only proven levels are shown
+since v0.6.0), so LogPilot's own code is checked by every rule at every level. If your change adds a finding in LogPilot's own code, fix it, or suppress it with
 a `logpilot-ignore` comment that gives the reason. Because of that config file, scan a fixture with
 `--no-config`, for example `node dist/cli.js scan test/fixtures/positive --no-config`.
 

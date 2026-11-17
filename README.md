@@ -17,12 +17,13 @@ wrong in production, for example an error that is caught and then silently throw
 > **New in v0.5.0: `logpilot fix`.** It asks before every change, writes only files that git can
 > restore exactly, and tells you how to undo. `scan` stays read-only.
 
-> **Changed in v0.4.3: LP001 (`empty-catch`) is off by default.** Most empty catches on real
-> projects were deliberate (see [LP001 in more detail](#lp001-in-more-detail)). **If your CI runs
-> `--fail-on` and relied on LP001 findings to fail, it no longer fails on empty catches.** To keep
-> the old behaviour, add `"rules": { "LP001": "on" }` to `logpilot.config.json`, or pass
-> `--enable LP001`. Also new: findings with the same pattern are
-> [listed together](#repeated-patterns).
+> **Changing in v0.6.0 (on `main`, not released yet): by default LogPilot shows only findings
+> proven accurate on unseen code.** Today that is **LP003 at high severity** (30 of 33 real
+> problems on 12 apps it was not designed on). LP001, LP002 and LP003's 4xx findings (*low*) still
+> run, but are hidden and counted in one summary line. **If your CI runs `--fail-on` and relied on
+> LP002 or LP003-low findings, it no longer fails on them.** To see everything as before, add
+> `"rules": { "LP001": "on", "LP002": "on", "LP003": "on" }` to `logpilot.config.json`, or pass
+> `--enable <rule>` for each rule. See [What you can rely on](#what-you-can-rely-on).
 
 Repository: https://github.com/rajatjain3366/logpilot
 
@@ -64,6 +65,65 @@ suggests how to fix it.
 - **Safe suggestions.** LogPilot never suggests logging secrets, tokens, credentials, payment
   data, or unnecessary personal data.
 
+## What you can rely on
+
+This section separates what LogPilot **guarantees** (checked by automated tests on every change,
+on Linux and Windows, Node 22 and 24) from what it has **measured** (numbers with an uncertainty),
+and says what it does **not** promise. *(Draft for v0.6.0, Milestone T.)*
+
+**Guarantees, and the tests that check them:**
+
+| Guarantee | Checked by |
+|---|---|
+| `scan` writes no file except the `--output` report, and starts no other program. The test runs the scan under Node's permission model, which refuses every write and every child process that was not allowed; the report is the same as without it. | [test/guarantees.test.ts](test/guarantees.test.ts), [test/no-write.test.ts](test/no-write.test.ts) |
+| `scan` never changes, creates or deletes a file in the scanned folder, with or without `--fix-preview`. | [test/cli.test.ts](test/cli.test.ts) ("does not create, delete or modify any file") |
+| No network: LogPilot's code loads no network module and uses no network API; its only runtime dependency is `typescript`. | [test/guarantees.test.ts](test/guarantees.test.ts) |
+| The same code gives a byte-identical JSON report on every run and every operating system (a fixed SHA-256 of the fixtures' report, checked on Linux and Windows). | [test/guarantees.test.ts](test/guarantees.test.ts), [test/cli.test.ts](test/cli.test.ts) |
+| A proposed fix only adds code, logs nothing but the error and the request's method and route, and never anything that looks like a password, token or personal data; otherwise it is not offered. | [test/fix-validate.test.ts](test/fix-validate.test.ts), [test/lp003-fix.test.ts](test/lp003-fix.test.ts) |
+| `logpilot fix` writes a file only after you answer `y`, only files git tracks with no uncommitted changes, and never a file that changed since it was read. | [test/fix-command.test.ts](test/fix-command.test.ts), [test/fix-preconditions.test.ts](test/fix-preconditions.test.ts), [test/fix-write.test.ts](test/fix-write.test.ts) |
+| By default, only findings at a rule and severity that passed the accuracy gate (below) are shown; the others are counted in the summary, and never fail `--fail-on`. | [test/cli.test.ts](test/cli.test.ts) ("default = proven only"), [test/scanner.test.ts](test/scanner.test.ts) |
+
+You can check the first guarantee yourself (Node 22.20+ or 24.8+): this scan can read every file
+but write none, so it fails if LogPilot ever tries to write:
+
+```bash
+node --permission --allow-fs-read=* dist/cli.js scan path/to/your/project
+```
+
+To write a report under the same restriction, allow that one file:
+`--allow-fs-write=/full/path/to/report.json` before `dist/cli.js`, and `--output /full/path/to/report.json` after `scan`.
+
+**Measured, not guaranteed: how often findings are real problems.** On apps that played no part
+in designing the rule (details in [Accuracy](#accuracy)):
+
+| Rule and severity | Real problems | Shown by default |
+|---|---|---|
+| LP003 at high severity | 30 of 33 (91%; CI 76–97%), 12 apps; 13 of 15 without the app that dominates (87%; CI 62–96%) | yes |
+| LP003 at low severity (4xx answers) | 0 of 10 (0%; CI 0–28%), measured at medium before it was lowered | no |
+| LP002, any severity | 2 of 12 (17%; CI 5–45%) | no |
+| LP001, any severity | 3 of 25 (12%; CI 4–30%) | no |
+
+"CI" is a 95% confidence interval: the range of true precision that these few findings are
+compatible with. Small samples give wide ranges, so a new project can land anywhere in it.
+
+- **The gate.** A rule's findings at a severity are shown by default ("proven") only when a
+  held-out measurement finds that **70% or more** are real problems (the measured value; the
+  interval is published next to it).
+- **Defaults follow the evidence, in both directions.** A rule or severity that is hidden by
+  default is shown again only after a **new** held-out measurement passes the gate: new apps,
+  chosen by a selection protocol whose SHA-256 is published before the scan. Re-labelling old
+  findings does not count. A proven level whose new measurement falls below 70% is hidden from the
+  next release on.
+- **Your settings win.** `"rules": { "LP002": "on" }` or `--enable LP002` shows all of a rule's
+  findings; `"off"` does not run it (see [Configuration](#configuration)).
+
+**Not promised:**
+
+- that every shown finding is a real problem (about 1 in 10 at LP003 high was not);
+- that a scan with 0 findings means your error handling is good: LogPilot checks three patterns,
+  and LP003 only checks Express apps;
+- that hidden findings are wrong: they are unproven, and some are real problems.
+
 ## Quick start
 
 Requires **Node.js 22.20 or newer** (on Node 24: **24.8 or newer**), because exclude patterns use
@@ -91,8 +151,8 @@ Scan options:
   --no-config              Do not use any config file
   --exclude <pattern>      Do not scan matching files or folders, e.g. "docs/**" (can be repeated;
                            adds to "exclude" in the config file)
-  --enable <rule>          Turn on a rule that is off by default, e.g. --enable LP001 (can be
-                           repeated; wins over "rules" in the config file)
+  --enable <rule>          Show all findings of a rule, also the levels not proven yet, e.g.
+                           --enable LP002 (can be repeated; wins over "rules" in the config file)
   --show-skipped           List every file and folder that was not scanned, and why
   --no-default-excludes    Also scan build output, third-party folders, minified and vendored files
                            (node_modules and .git are never scanned)
@@ -107,7 +167,9 @@ Scan options:
                            are listed under the first one, and later findings of the same kind
                            refer back to the first one)
 
-Rules: LP001 empty-catch (off by default), LP002 lost-error-cause, LP003 unlogged-error-response.
+Rules: LP001 empty-catch, LP002 lost-error-cause, LP003 unlogged-error-response.
+  By default only findings proven accurate on unseen code are shown: today LP003 at high severity.
+  The others are counted in the summary; show them with --enable <rule>.
 
 Fix options: --config, --no-config, --exclude, --no-default-excludes (as for scan), and
   --output <file>          Write a JSON record of the run (what was written, declined, skipped)
@@ -139,10 +201,20 @@ lp003-error-responses.js:14:5
        or URLs (paths and query strings can carry tokens).
 
 Scanned 1 file, 8 findings (LP003: 8)
-LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with "rules": { "LP001": "on" } in logpilot.config.json, or --enable LP001.
 ```
 
-An LP002 finding (from `node dist/cli.js scan test/fixtures/positive/lp002-options-mistake.ts --no-config`):
+By default, findings that are not proven yet are hidden and counted at the end (from
+`node dist/cli.js scan test/fixtures/positive/lp002-options-mistake.ts --no-config`):
+
+```text
+Scanned 1 file, 0 findings
+No Express handlers found: LP003 and fix previews only check Express apps.
+Hidden, not proven on unseen code yet: 2 findings (LP002: 2).
+Show them with --enable <rule>, or "rules": { "<rule>": "on" } in logpilot.config.json.
+```
+
+With `--enable LP002`, the first of those two LP002 findings
+(`node dist/cli.js scan test/fixtures/positive/lp002-options-mistake.ts --no-config --enable LP002`):
 
 ```text
 lp002-options-mistake.ts:11:5
@@ -169,8 +241,8 @@ or drive you run LogPilot from: `scan D:\projects\shop` and `scan ../..` both pr
 When several findings have the **same pattern** (same rule, case, levels and code shape: for LP002
 the thrown class, for LP001 the first call in the `try`), the first is shown in full and the others
 are listed under it by location. Every location is still printed. From
-`node dist/cli.js scan test/fixtures/positive/lp002-message-only.js --no-config` (first finding
-only; the file has 5 findings in 3 patterns):
+`node dist/cli.js scan test/fixtures/positive/lp002-message-only.js --no-config --enable LP002`
+(first finding only; the file has 5 findings in 3 patterns):
 
 ```text
 lp002-message-only.js:10:5
@@ -231,7 +303,6 @@ From `node dist/cli.js scan test/fixtures/fix/loggers/pino-in-file.js --fix-prev
            and req.route?.path, and after it this finding is gone and no other finding changes.
 
 Scanned 1 file, 1 finding (LP003: 1)
-LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with "rules": { "LP001": "on" } in logpilot.config.json, or --enable LP001.
 Fix previews (LP003 only): 1 available, 0 not available.
 No file was changed: apply a fix yourself after reviewing it.
 ```
@@ -416,15 +487,15 @@ not written and why, each file's SHA-256 before and after, and the undo commands
 
 | Rule | Name | Detects | Severity | Confidence |
 |---|---|---|---|---|
-| `LP001` | `empty-catch` | **Off by default** (turn it on with `--enable LP001` or `"rules": { "LP001": "on" }`). A `catch` block with no statements: `catch (e) {}`, `catch {}`. Worth reviewing | medium | high |
+| `LP001` | `empty-catch` | **Hidden by default** (not proven; show it with `--enable LP001` or `"rules": { "LP001": "on" }`). A `catch` block with no statements: `catch (e) {}`, `catch {}`. Worth reviewing | medium | high |
 | | | …and an existence check on the same thing runs first (`if (existsSync(f)) { try { read(f) } catch {} }`, also `map.has(k)`, `k in obj`, `stat(p).isFile()`, or an early `if (!existsSync(f)) return;`), so only *unexpected* errors can reach the catch | high | unchanged |
 | | | …and a comment explains the ignore: inside the catch, inside the try, on the line(s) directly above the `try`, or right after the catch's `}` | unchanged | medium |
 | | | …inside another `catch` whose own error is still thrown, returned or passed on (best-effort work while handling that error) | low | unchanged |
 | | | …around a test assertion that fails by throwing, so the test can never fail there (this overrides all rows above). See [LP001 in more detail](#lp001-in-more-detail) | high | high |
-| `LP002` | `lost-error-cause` | A `catch` block throws a new error that drops the caught one: `catch (err) { throw new Error("Load failed") }` | high | high |
+| `LP002` | `lost-error-cause` | **Hidden by default** (not proven; show it with `--enable LP002`). A `catch` block throws a new error that drops the caught one: `catch (err) { throw new Error("Load failed") }` | high | high |
 | | | The new error keeps only the caught error's text: ``new Error(`Load failed: ${err.message}`)``, `"x: " + err`, `String(err)`, `new Error(err)` | medium | high |
 | | | The caught error is passed as `Error`'s 2nd argument, which is an options object, so it is lost: `new Error("Load failed", err)` | high | high |
-| `LP003` | `unlogged-error-response` | An Express handler's `catch` (or error middleware) sends an error response, and the caught error is never logged, passed to `next()` or rethrown. See [LP003 in more detail](#lp003-in-more-detail) | high, or low for a 4xx answer | high or medium |
+| `LP003` | `unlogged-error-response` | An Express handler's `catch` (or error middleware) sends an error response, and the caught error is never logged, passed to `next()` or rethrown. **Shown by default at high severity** (proven); the *low* 4xx findings are hidden unless you pass `--enable LP003`. See [LP003 in more detail](#lp003-in-more-detail) | high, or low for a 4xx answer | high or medium |
 
 - **Severity** = how much the problem would hurt a failure investigation, and how much evidence
   there is for that:
@@ -448,11 +519,11 @@ default; see [What LogPilot does not scan](#what-logpilot-does-not-scan).
 > from the rest (see [Accuracy](#accuracy)). `no-empty` reports the same empty catch blocks, in
 > your editor. LP001 stays in LogPilot as it is.
 >
-> **Since v0.4.3, LP001 is off by default.** Early testers judged all 6 of their LP001 findings
-> to be deliberate. Turn it on with `--enable LP001` or `"rules": { "LP001": "on" }` in
-> `logpilot.config.json`. While it is off, the summary says so once:
-> `LP001 (empty-catch) is off by default: most empty catches are deliberate. Turn it on with ...`.
-> Its rule version went from 2 to 3 in v0.4.3 because its suggestion text changed (v0.4.2);
+> **LP001's findings are hidden by default** (since v0.4.3 it was off by default; since v0.6.0 it
+> runs, but no level is proven, so its findings are counted in the summary line
+> `Hidden, not proven on unseen code yet: ...` instead of shown). Early testers judged all 6 of
+> their LP001 findings to be deliberate. Show them with `--enable LP001` or
+> `"rules": { "LP001": "on" }` in `logpilot.config.json`. Its rule version went from 2 to 3 in v0.4.3 because its suggestion text changed (v0.4.2);
 > what it detects has not changed since version 2.
 
 For LP001, an outer error that is passed on wins over an existence check; a comment does not.
@@ -563,21 +634,27 @@ designing the rule being measured, and reading every finding. A finding counts a
 problem** only when a failure there would really lose evidence that matters; findings that are
 debatable count as not real. The samples are small, so treat the percentages as rough.
 
-| Rule | Measured on | Findings | Real problems | Real problems at high severity |
-|---|---|---|---|---|
-| LP003 `unlogged-error-response` | 12 small Express/MERN apps | 43 | 30 (70%) | 30 of 33 (91%) |
-| LP002 `lost-error-cause` | the MongoDB Node.js driver (its own code) and 3 small Express/MERN apps | 12 (all in the driver) | 2 (17%) | 1 high finding, not a real problem |
-| LP001 `empty-catch` | knex and node-postgres | 25 | 3 (12%) | no high findings |
+**How to read "CI".** Each number comes with a 95% confidence interval: the range of true
+precision that these few findings are compatible with. A new project can land anywhere in it.
+
+| Rule | Measured on | Findings | Real problems | Real problems at high severity | Shown by default |
+|---|---|---|---|---|---|
+| LP003 `unlogged-error-response` | 12 small Express/MERN apps | 43 | 30 of 43 (70%; CI 55–81%) | 30 of 33 (91%; CI 76–97%) | high only |
+| LP002 `lost-error-cause` | the MongoDB Node.js driver (its own code) and 3 small Express/MERN apps | 12 (all in the driver) | 2 of 12 (17%; CI 5–45%) | 0 of 1 (CI 0–79%) | no |
+| LP001 `empty-catch` | knex and node-postgres | 25 | 3 of 25 (12%; CI 4–30%) | no high findings | no |
 
 What this means:
 
+- **Only LP003 at high severity passes the 70% gate, so only it is shown by default** (see
+  [What you can rely on](#what-you-can-rely-on)).
 - **LP003's high-severity findings were nearly all real problems.**
   - Its 4xx case (case E) found no real problem: all 10 were debatable authentication or
     validation answers, where a 401 or 400 is the right answer to the expected failure. They were
-    measured at *medium* severity. LP003 now reports case E at *low*; that new level has not been
-    measured.
+    measured at *medium* severity (0 of 10; CI 0–28%). LP003 now reports case E at *low*, hidden
+    by default.
   - One app gave 17 of the 30 real problems, all one repeated pattern. Counted by distinct
-    pattern, 6 of 16 were real problems, so expect fewer elsewhere.
+    pattern, 6 of 16 were real problems (CI 18–61%), so expect fewer elsewhere. Without that app,
+    high severity is 13 of 15 (87%; CI 62–96%).
 - **Most LP001 and LP002 findings are not real problems, and severity does not yet separate the
   real ones.**
   - LP001's 3 real problems were reported at *medium*, but so were 21 of the 22 findings that were
@@ -611,7 +688,7 @@ Put a `logpilot.config.json` in your project:
   "defaultExcludes": true,
   "minSeverity": "low",
   "failOn": "none",
-  "rules": { "LP001": "on" }
+  "rules": { "LP002": "on" }
 }
 ```
 
@@ -621,7 +698,7 @@ Put a `logpilot.config.json` in your project:
 | `defaultExcludes` | Skip the default folders, minified and vendored files listed [below](#what-logpilot-does-not-scan) | `true` |
 | `minSeverity` | Show only findings at or above `low`, `medium` or `high` (see [Choosing what to show, and when to fail](#choosing-what-to-show-and-when-to-fail)) | `"low"` |
 | `failOn` | Exit with code 1 when a shown finding is at or above `none`, `low`, `medium` or `high` | `"none"` |
-| `rules` | Turn rules `"on"` or `"off"` by ID, for example `{ "LP001": "on" }`. Rules you do not name keep their default: LP001 off, LP002 and LP003 on. `--enable <rule>` wins over this setting | `{}` |
+| `rules` | Each rule by ID: `"proven"` (the default: show only its levels proven on unseen code, count the rest in the summary), `"on"` (show all its findings) or `"off"` (do not run it). For example `{ "LP002": "on" }`. Today the proven levels are LP003 at high severity; LP001 and LP002 have none. `--enable <rule>` (= `"on"`) wins over this setting | `{}` |
 
 - **Where LogPilot finds it:**
   - It looks in the scanned folder, then in each parent folder up to the repository root (the
@@ -711,9 +788,9 @@ try {
 - **By default, findings never fail a scan (`--fail-on none`): LogPilot is warning-only.** This
   changed in v0.2.0: v0.1.0 exited with code 1 whenever there was a finding. Use `--fail-on low`
   for the old behaviour.
-- **Only rules that run can fail a scan.** Since v0.4.3, LP001 is off by default, so empty catches
-  no longer fail `--fail-on` unless you turn LP001 on (`--enable LP001` or
-  `"rules": { "LP001": "on" }`).
+- **Only shown findings can fail a scan.** Since v0.6.0, findings that are not proven (all of
+  LP001 and LP002, and LP003 at *low*) are hidden by default, so they no longer fail `--fail-on`
+  unless you show them (`--enable <rule>` or `"rules": { "<rule>": "on" }`).
 - A `--fail-on` level below `--min-severity` (for example `--min-severity high --fail-on medium`)
   is refused with exit code 2, because LogPilot would fail on findings it does not show.
 - Both can be set in the config file (`minSeverity`, `failOn`); command-line options win.
@@ -735,32 +812,33 @@ node dist/cli.js scan . --format json --output logpilot-report.json
 LogPilot refuses an `--output` file that ends in a JavaScript or TypeScript extension (`.js`, `.ts`,
 ...), so a typo can never overwrite source code.
 
-The report has this shape (schema version 3). The `summary` below is real: the MongoDB Node.js
+The report has this shape (schema version 4). The `summary` below is real: the MongoDB Node.js
 driver at the commit listed in [docs/evaluation.md](docs/evaluation.md), scanned with default
-settings (a library, so LP003 finds nothing there; the 2 files with Express handlers are a small
-docs preview server and a test with a mock request handler; LP001 is off by default, so its 18
-findings there are not reported):
+settings. It is a library, so LP003 finds nothing there (the 2 files with Express handlers are a
+small docs preview server and a test with a mock request handler). Its 18 LP001 and 13 LP002
+findings are not proven, so they are hidden and counted in `hiddenNotProven`, and 0 are shown:
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "tool": { "name": "logpilot", "version": "0.5.0" },
   "rules": [
-    { "id": "LP001", "name": "empty-catch", "version": 3, "enabled": false },
-    { "id": "LP002", "name": "lost-error-cause", "version": 1, "enabled": true },
-    { "id": "LP003", "name": "unlogged-error-response", "version": 3, "enabled": true }
+    { "id": "LP001", "name": "empty-catch", "version": 3, "enabled": true, "setting": "proven", "provenLevels": [] },
+    { "id": "LP002", "name": "lost-error-cause", "version": 1, "enabled": true, "setting": "proven", "provenLevels": [] },
+    { "id": "LP003", "name": "unlogged-error-response", "version": 3, "enabled": true, "setting": "proven", "provenLevels": ["high"] }
   ],
   "config": {
     "file": null, "defaultExcludes": true, "exclude": [], "minSeverity": "low", "failOn": "none", "fixPreview": false,
-    "rules": { "LP001": "off", "LP002": "on", "LP003": "on" }
+    "rules": { "LP001": "proven", "LP002": "proven", "LP003": "proven" }
   },
   "summary": {
     "filesScanned": 737,
     "filesWithExpressHandlers": 2,
-    "findings": 13,
-    "patterns": 11,
-    "findingsByRule": { "LP001": 0, "LP002": 13, "LP003": 0 },
-    "findingsBySeverity": { "high": 1, "medium": 3, "low": 9 },
+    "findings": 0,
+    "patterns": 0,
+    "hiddenNotProven": { "LP001": 18, "LP002": 13, "LP003": 0 },
+    "findingsByRule": { "LP001": 0, "LP002": 0, "LP003": 0 },
+    "findingsBySeverity": { "high": 0, "medium": 0, "low": 0 },
     "hiddenBelowMinSeverity": 0,
     "suppressed": 0,
     "skippedFiles": { "minified": 275, "vendored": 15, "userExclude": 0 },
@@ -817,6 +895,11 @@ findings there are not reported):
     (every rule, `"on"` or `"off"` in this scan), `pattern` for each finding, and
     `summary.patterns`. A rule that is off has `"enabled": false` and 0 in `findingsByRule`, so
     "off" and "no findings" can be told apart.
+  - Version 4 (v0.6.0): `config.rules` can hold `"proven"` (the new default) besides `"on"` and
+    `"off"`. Added: `setting` and `provenLevels` for each rule (`enabled` now means the rule ran,
+    that is, its setting is not `"off"`), and `summary.hiddenNotProven`: per rule, the findings
+    that were found but hidden because their level is not proven. `findings`, `findingsByRule`
+    and `findingsBySeverity` count only shown findings.
 - **Patterns.** Each LP001 and LP002 finding has a `pattern` ID such as `"LP002-dcfb2a11"`: the
   rule ID and 8 hex digits of a hash of its case, levels and code shape. Findings with the same ID
   share one explanation. The ID is the same on every run and every OS, and changes only if the
@@ -871,8 +954,8 @@ case:** a `catch (err)` that answers 500 and never uses `err`. LP003 adds exactl
   passed on with `next(err)` disappears there. There is no catch block, so Sonar's rule does not
   apply.
 - **Severity by response status:** 5xx (or no error status at all) is *high*; 4xx is *low*. On
-  unseen apps, 30 of 33 high findings were real problems, and 0 of 10 4xx findings (see
-  [Accuracy](#accuracy)).
+  unseen apps, 30 of 33 high findings were real problems (CI 76–97%), and 0 of 10 4xx findings
+  (CI 0–28%), so 4xx findings are hidden by default (see [Accuracy](#accuracy)).
 - **Express context:** it looks only at request handlers, and its explanation says what your logs
   will and will not show.
 
@@ -903,9 +986,12 @@ We have not measured how many LogPilot findings these lint rules also report.
     offered;
   - replacing a file gives it the folder's default Windows permissions (ACLs) and, on Linux and
     macOS, your user as owner; for normal source files these are the same as before.
-- **LP001 is off by default (v0.4.3),** so a default scan does not report empty catches, not even
-  the few that are real problems or the "this test can never fail" case. Turn it on with
-  `--enable LP001`.
+- **By default only LP003 at high severity is shown (v0.6.0),** so a default scan does not show
+  empty catches (LP001), lost error causes (LP002) or 4xx answers (LP003 *low*), not even the few
+  that are real problems or LP001's "this test can never fail" case. They are counted in the
+  summary; show them with `--enable <rule>`.
+- **"Proven" rests on small samples.** LP003 high is 30 of 33 on 12 apps (CI 76–97%), and 13 of 15
+  without its dominant app (CI 62–96%). A new codebase can do worse; see [Accuracy](#accuracy).
 - **Grouping compares the shape of the code, not what it means.** Two `throw new ApiError(...)`
   that drop the caught error are one pattern even if only one of them matters. Each location is
   still listed, but only the first finding's evidence and suggestion are printed: a listed

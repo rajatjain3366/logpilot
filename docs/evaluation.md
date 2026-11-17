@@ -21,6 +21,35 @@ projects; it is not a precision claim either.
 writes exactly the fixes it shows, on copies of the tuning apps (99 of 99 applied, every changed
 file only gained characters).
 
+## How to read the numbers, and what they decide (v0.6.0)
+
+**Every precision is shown with its sample size and a 95% confidence interval**, e.g. "30/33 (91%;
+CI 76–97%)". The interval is the range of true precision that the measured findings are
+compatible with; a small sample gives a wide range, so a new codebase can land anywhere in it.
+(It is the Wilson score interval; `eval-data/scripts/precision.mjs` recomputes every one.)
+
+**What is shown by default follows these numbers (the gate).** Since v0.6.0, a rule's findings at a
+severity are shown by default ("proven") only when a held-out measurement gives a precision of
+**70% or more** (the measured value, not the interval). Today that is only **LP003 at high
+severity** (30/33, 91%; CI 76–97%). Everything else is still found, but hidden by default and
+counted in the summary:
+
+| Rule and severity | Held-out precision | Shown by default |
+|---|---|---|
+| LP003 high | 30/33 (91%; CI 76–97%) | yes |
+| LP003 low (case E, 4xx; measured at medium before it was lowered) | 0/10 (0%; CI 0–28%) | no |
+| LP002 high | 0/1 (round 2), 1/12 (8%; CI 1–35%, round 1, Mongoose) | no |
+| LP002 medium | 1/3 (33%; CI 6–79%) | no |
+| LP002 low | 1/9 (11%; CI 2–43%) | no |
+| LP001 (all levels, version 2) | 3/25 (12%; CI 4–30%) | no |
+
+**Defaults follow the evidence in both directions.** A rule or severity that is hidden by default
+becomes "proven" again only after a **new** held-out measurement passes the gate: new apps that
+played no part in designing the rule, chosen by a selection protocol whose SHA-256 is published
+before the scan, as for LP003 below. Re-reading or relabelling old findings does not count. In the
+same way, if a new held-out measurement of a proven level falls below 70%, that level is hidden by
+default from the next release on.
+
 **Commit hashes:** the LogPilot commits cited here (`be0126b`, `15f0b46`, `5c9a4a6`, `318499c`, and any other) refer to the private development history; the public repository starts from a single snapshot commit. Exception: `4f741fa`, cited in the Milestone 3 section, is a commit of the public repository.
 
 ## Evaluation data and anonymized apps
@@ -392,7 +421,9 @@ repository is the exception: it is public, so its file paths are given.
 - **LP001 is off by default** (all 6 tester LP001 findings were deliberate; held-out precision
   3 of 25). It is turned on with `--enable LP001` or `"rules": { "LP001": "on" }`, and the summary
   says once that it is off. LogPilot's own `logpilot.config.json` turns it on, so the self-scan in
-  CI still checks LogPilot's code for empty catches.
+  CI still checks LogPilot's code for empty catches. (v0.6.0 replaced this special case with
+  [default = proven only](#how-to-read-the-numbers-and-what-they-decide-v060): every rule runs,
+  and only levels that passed the gate are shown.)
 - **Findings with the same pattern are listed together** (T2): same rule, case, levels and code
   shape (for LP002 the thrown class; for LP001 the first call in the `try`). The first is shown
   in full, every other location is listed under it, and the summary says "in N patterns".
@@ -545,17 +576,18 @@ was tuned afterwards.
 
 | | Precision (TP / findings) | TP / debatable / FP |
 |---|---|---|
-| **High severity** | **30/33 (91%)** | 30 / 2 / 1 |
-| **Medium severity** (all case E) | **0/10 (0%)** | 0 / 10 / 0 |
+| **High severity** | **30/33 (91%; CI 76–97%)** | 30 / 2 / 1 |
+| High severity without App P (the dominant app, see below; 6 apps) | 13/15 (87%; CI 62–96%) | 13 / 1 / 1 |
+| **Medium severity** (all case E) | **0/10 (0%; CI 0–28%)** | 0 / 10 / 0 |
 | Low severity | no findings | |
-| Case A (5xx, error never used) | 21/24 (88%) | 21 / 2 / 1 |
-| Case B (error sent to the client only) | 3/3 | 3 / 0 / 0 |
-| Case C (log line without the error) | 6/6 | 6 / 0 / 0 |
+| Case A (5xx, error never used) | 21/24 (88%; CI 69–96%) | 21 / 2 / 1 |
+| Case B (error sent to the client only) | 3/3 (CI 44–100%) | 3 / 0 / 0 |
+| Case C (log line without the error) | 6/6 (CI 61–100%) | 6 / 0 / 0 |
 | Case D (no error status) | no findings | |
-| Case E (4xx) | 0/10 (0%) | 0 / 10 / 0 |
-| Confidence high (registered in the file) | 17/19 (89%) | 17 / 2 / 0 |
-| Confidence medium (shape only, or case D/E) | 13/24 (54%) | 13 / 10 / 1 |
-| **All** | **30/43 (70%)** | 30 / 12 / 1 |
+| Case E (4xx) | 0/10 (0%; CI 0–28%) | 0 / 10 / 0 |
+| Confidence high (registered in the file) | 17/19 (89%; CI 69–97%) | 17 / 2 / 0 |
+| Confidence medium (shape only, or case D/E) | 13/24 (54%; CI 35–72%) | 13 / 10 / 1 |
+| **All** | **30/43 (70%; CI 55–81%)** | 30 / 12 / 1 |
 | Distinct patterns (TP patterns) | 16 (6) | |
 
 What this shows:
@@ -571,6 +603,8 @@ What this shows:
   list); that new level is unmeasured.
 - **One app dominates.** App P gives 18 findings, 17 of them one repeated pattern (P1). By
   pattern, 6 of 16 are true positives. Treat 70% as an upper estimate of what a new app will see.
+  All 18 of App P's findings are high, so without App P high severity is 13/15 (87%; CI 62–96%):
+  still above the gate, with a wider interval.
 - **No error middleware was found in the held-out apps,** so the middleware extension has no
   held-out measurement yet.
 - **Recall estimate: 18 of 18.** The protocol picked a systematic sample of 60 of the 174 candidate
@@ -814,16 +848,16 @@ was added, and LP003 was not changed: it stays frozen. Two observations for a la
 
 | | View 1: Claude's labels | View 2: second labeller wins disagreements | View 3: TP only if both say TP |
 |---|---|---|---|
-| **All 43 findings** | **30/43 (70%)** | **32/43 (74%)** | **30/43 (70%)** |
-| High severity | 30/33 (91%) | 30/33 (91%) | 30/33 (91%) |
-| Medium severity (all case E) | 0/10 (0%) | 2/10 (20%) | 0/10 (0%) |
-| Case A | 21/24 (88%) | 21/24 (88%) | 21/24 (88%) |
-| Case B | 3/3 | 3/3 | 3/3 |
-| Case C | 6/6 | 6/6 | 6/6 |
+| **All 43 findings** | **30/43 (70%; CI 55–81%)** | **32/43 (74%; CI 60–85%)** | **30/43 (70%; CI 55–81%)** |
+| High severity | 30/33 (91%; CI 76–97%) | 30/33 (91%; CI 76–97%) | 30/33 (91%; CI 76–97%) |
+| Medium severity (all case E) | 0/10 (0%; CI 0–28%) | 2/10 (20%; CI 6–51%) | 0/10 (0%; CI 0–28%) |
+| Case A | 21/24 (88%; CI 69–96%) | 21/24 (88%; CI 69–96%) | 21/24 (88%; CI 69–96%) |
+| Case B | 3/3 (CI 44–100%) | 3/3 (CI 44–100%) | 3/3 (CI 44–100%) |
+| Case C | 6/6 (CI 61–100%) | 6/6 (CI 61–100%) | 6/6 (CI 61–100%) |
 | Case D | no findings | no findings | no findings |
-| Case E | 0/10 (0%) | 2/10 (20%) | 0/10 (0%) |
-| Confidence high | 17/19 (89%) | 17/19 (89%) | 17/19 (89%) |
-| Confidence medium | 13/24 (54%) | 15/24 (63%) | 13/24 (54%) |
+| Case E | 0/10 (0%; CI 0–28%) | 2/10 (20%; CI 6–51%) | 0/10 (0%; CI 0–28%) |
+| Confidence high | 17/19 (89%; CI 69–97%) | 17/19 (89%; CI 69–97%) | 17/19 (89%; CI 69–97%) |
+| Confidence medium | 13/24 (54%; CI 35–72%) | 15/24 (63%; CI 43–79%) | 13/24 (54%; CI 35–72%) |
 | The 10 double-labelled findings (not a precision estimate) | 8/10 | 10/10 | 8/10 |
 
 What this shows:
@@ -866,8 +900,8 @@ What this shows:
 
 Round 3 measured **LP001 version 2** (Milestone 2.5) on knex and node-postgres. Detection unchanged
 since v2: version 3 (v0.4.3) changed only the suggestion text, so these numbers still apply. Since
-v0.4.3, LP001 is off by default. The three changes
-in version 2:
+v0.6.0, LP001's findings are hidden by default (no level passes the 70% gate; they are counted in
+the summary and shown with `--enable LP001`). The three changes in version 2:
 
 - a comment lowers only confidence, never severity;
 - tool directives (`eslint-disable`, `@ts-ignore`, `istanbul ignore`, ...) are not explanations;
@@ -883,9 +917,9 @@ repositories were filtered out unseen** (LP002 did not change), so they stay hel
 | Files scanned | 472 | 270 | 742 |
 | LP001 findings | 19 | 6 | 25 |
 | High severity | no findings | no findings | no findings |
-| Medium severity | 3/18 (17%) | 0/6 (0%) | **3/24 (13%)** |
-| Low severity | 0/1 | no findings | 0/1 |
-| **All** | **3/19 (16%)** | **0/6 (0%)** | **3/25 (12%)** |
+| Medium severity | 3/18 (17%; CI 6–39%) | 0/6 (0%; CI 0–39%) | **3/24 (13%; CI 4–31%)** |
+| Low severity | 0/1 (CI 0–79%) | no findings | 0/1 (CI 0–79%) |
+| **All** | **3/19 (16%; CI 6–38%)** | **0/6 (0%; CI 0–39%)** | **3/25 (12%; CI 4–30%)** |
 | Raw counts (TP / debatable / FP) | 3 / 2 / 14 | 0 / 1 / 5 | 3 / 3 / 19 |
 | Distinct patterns (TP patterns) | 9 (1) | 4 (0) | 13 (1) |
 
@@ -906,7 +940,7 @@ What this shows:
   `// eslint-disable-next-line no-empty` directive next to them. They now get confidence *high*,
   and none is a true positive (4 FP, 1 debatable). A directive is not an explanation, but it does
   show that someone noticed the empty catch. Five findings are too few to act on.
-- By confidence: *high* 0/5, *medium* 3/20 (15%).
+- By confidence: *high* 0/5 (CI 0–43%), *medium* 3/20 (15%; CI 5–36%).
 - **One labeller.** All labels are Claude's, following the guide; there was no second-labeller
   check this round. Every finding links to the exact line, so anyone can re-check it.
 
@@ -987,10 +1021,10 @@ positive". "Project code only" leaves out 258 findings inside vendored third-par
 | Project | MongoDB Node.js driver | MongoDB Node.js driver | 3 Express/MERN apps |
 | Files scanned | 1,027 | 1,027 | 176 (100 + 15 + 61) |
 | Findings | 288 | 30 | 11 (11 + 0 + 0) |
-| High severity | 0/1 | 0/1 | no findings |
-| Medium severity | 1/190 (1%) | 1/4 (25%) | 0/4 (0%) |
-| Low severity | 5/97 (5%) | 5/25 (20%) | 1/7 (14%) |
-| **All** | **6/288 (2%)** | **6/30 (20%)** | **1/11 (9%)** |
+| High severity | 0/1 (CI 0–79%) | 0/1 (CI 0–79%) | no findings |
+| Medium severity | 1/190 (1%; CI 0–3%) | 1/4 (25%; CI 5–70%) | 0/4 (0%; CI 0–49%) |
+| Low severity | 5/97 (5%; CI 2–12%) | 5/25 (20%; CI 9–39%) | 1/7 (14%; CI 3–51%) |
+| **All** | **6/288 (2%; CI 1–4%)** | **6/30 (20%; CI 10–37%)** | **1/11 (9%; CI 2–38%)** |
 | Distinct patterns (TP patterns) | 15 (3) | 14 (3) | 3 (1) |
 
 **The 70% target for high severity cannot be confirmed or refuted on unseen code.** Only one
@@ -1015,11 +1049,11 @@ Precision by rule and severity, raw counts in brackets (TP / debatable / FP):
 | Rule | Severity | Mature, all | Mature, project code only | Beginner |
 |---|---|---|---|---|
 | LP001 | high | no findings | no findings | no findings |
-| LP001 | medium | 0/187 (0 / 2 / 185) | 0/2 (0 / 2 / 0) | 0/4 (0 / 1 / 3) |
-| LP001 | low | 4/88 (4 / 2 / 82) | 4/16 (4 / 2 / 10) | 1/7 (1 / 0 / 6) |
-| LP002 | high | 0/1 (0 / 1 / 0) | 0/1 (0 / 1 / 0) | no findings |
-| LP002 | medium | 1/3 (1 / 1 / 1) | 1/2 (1 / 1 / 0) | no findings |
-| LP002 | low | 1/9 (1 / 2 / 6) | 1/9 (1 / 2 / 6) | no findings |
+| LP001 | medium | 0/187 (0 / 2 / 185; CI 0–2%) | 0/2 (0 / 2 / 0; CI 0–66%) | 0/4 (0 / 1 / 3; CI 0–49%) |
+| LP001 | low | 4/88 (4 / 2 / 82; CI 2–11%) | 4/16 (4 / 2 / 10; CI 10–49%) | 1/7 (1 / 0 / 6; CI 3–51%) |
+| LP002 | high | 0/1 (0 / 1 / 0; CI 0–79%) | 0/1 (0 / 1 / 0; CI 0–79%) | no findings |
+| LP002 | medium | 1/3 (1 / 1 / 1; CI 6–79%) | 1/2 (1 / 1 / 0; CI 9–91%) | no findings |
+| LP002 | low | 1/9 (1 / 2 / 6; CI 2–43%) | 1/9 (1 / 2 / 6; CI 2–43%) | no findings |
 
 ## Method
 
@@ -1207,10 +1241,10 @@ Precision by rule and severity:
 
 | Rule | Severity | Vite baseline | Vite tuned | Mongoose tuned |
 |---|---|---|---|---|
-| LP001 | high | 4/29 (14%) | 4/12 (33%) | 0/3 (0%) |
-| LP001 | low | – | 0/17 (0%) | 0/4 (0%) |
-| LP002 | high | 1/3 (33%) | 1/3 (33%) | 1/12 (8%) |
-| LP002 | low | 0/1 (0%) | 0/1 (0%) | – |
+| LP001 | high | 4/29 (14%; CI 5–31%) | 4/12 (33%; CI 14–61%) | 0/3 (0%; CI 0–56%) |
+| LP001 | low | – | 0/17 (0%; CI 0–18%) | 0/4 (0%; CI 0–49%) |
+| LP002 | high | 1/3 (33%; CI 6–79%) | 1/3 (33%; CI 6–79%) | 1/12 (8%; CI 1–35%) |
+| LP002 | low | 0/1 (0%; CI 0–79%) | 0/1 (0%; CI 0–79%) | – |
 
 Mongoose's LP002 numbers have **no false positives at all**: 11 of its 12 findings are
 *debatable*, the same deliberate pattern repeated (see below). Precision here counts debatable as

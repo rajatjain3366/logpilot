@@ -1,6 +1,7 @@
 // Report: turns scan results into readable text for the terminal.
 // Pure formatting: these functions return strings and never print anything themselves.
 
+import { RULES } from "./analyze.js";
 import { FIXABLE_RULES } from "./fixes.js";
 import type { ScanResult } from "./scanner.js";
 import type { Finding, Severity, SkippedPath, SkipReason } from "./types.js";
@@ -38,8 +39,6 @@ export interface ReportOptions {
   minSeverity?: Severity;
   /** The scan ran with --fix-preview: show the proposed fixes and count them in the summary. */
   fixPreview?: boolean;
-  /** Rules that did not run only because they are off by default (the summary says how to turn them on). */
-  offByDefault?: { id: string; name: string; reason: string }[];
   /**
    * Show every finding in full (--verbose). Without it, findings with the same pattern are listed
    * under the first one, and later findings of the same kind refer back to the first one.
@@ -276,13 +275,9 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
     // Without this, "0 LP003 findings" in a Next.js or library project could look like a clean result.
     lines.push(NO_EXPRESS_LINE);
   }
-  for (const rule of result.filesScanned > 0 ? (options.offByDefault ?? []) : []) {
-    // Without this, a scan with LP001 off could look like "no empty catches here".
-    lines.push(
-      `${rule.id} (${rule.name}) is off by default: ${rule.reason}. Turn it on with "rules": { "${rule.id}": "on" } ` +
-        `in logpilot.config.json, or --enable ${rule.id}.`,
-    );
-  }
+  const hiddenLine = formatHiddenLine(result.hiddenNotProven);
+  // Without this, hidden findings could look like "nothing found here".
+  if (hiddenLine !== undefined) lines.push(hiddenLine);
   if (options.configFile !== undefined) lines.push(`Config file: ${options.configFile}`);
   if (options.fixPreview) {
     const fixable = result.findings.filter((f) => FIXABLE_RULES.has(f.ruleId) && f.fix !== undefined);
@@ -293,6 +288,26 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * The findings hidden because their rule and level are not proven on unseen code (default = proven
+ * only), as two lines, e.g. "Hidden, not proven on unseen code yet: 16 findings (LP002: 14, LP003 at
+ * low severity: 2)." and "Show them with --enable <rule>, ...". Nothing when none was hidden.
+ */
+function formatHiddenLine(hidden: readonly Finding[]): string | undefined {
+  if (hidden.length === 0) return undefined;
+  const parts = RULES.filter((rule) => hidden.some((f) => f.ruleId === rule.id)).map((rule) => {
+    const ofRule = hidden.filter((f) => f.ruleId === rule.id);
+    if (rule.provenLevels.length === 0) return `${rule.id}: ${ofRule.length}`;
+    // A rule with proven levels: name the hidden levels, from high to low.
+    const levels = (["high", "medium", "low"] as const).filter((level) => ofRule.some((f) => f.severity === level));
+    return `${rule.id} at ${levels.join(" or ")} severity: ${ofRule.length}`;
+  });
+  return (
+    `Hidden, not proven on unseen code yet: ${plural(hidden.length, "finding")} (${parts.join(", ")}).\n` +
+    `Show them with --enable <rule>, or "rules": { "<rule>": "on" } in logpilot.config.json.`
+  );
 }
 
 /** Shown once in the summary when no scanned file has an Express handler. */

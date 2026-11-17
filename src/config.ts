@@ -2,7 +2,7 @@
 
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { KNOWN_RULE_IDS } from "./analyze.js";
+import { KNOWN_RULE_IDS, RULE_SETTINGS, type RuleSetting } from "./analyze.js";
 import { checkExcludePattern } from "./file-selection.js";
 import {
   DEFAULT_FAIL_ON,
@@ -27,8 +27,8 @@ export interface Config {
   minSeverity: Severity;
   /** Exit with code 1 when a finding is at or above this severity ("none": never). */
   failOn: FailOn;
-  /** Rules turned on or off, e.g. { "LP001": "on" }. Only the rules the file names; the rest keep their default. */
-  rules: Record<string, "on" | "off">;
+  /** Rules set to "proven", "on" or "off", e.g. { "LP001": "on" }. Only the rules the file names; the rest stay "proven". */
+  rules: Record<string, RuleSetting>;
 }
 
 /** The settings LogPilot knows. Anything else is an error, so a typo such as "excludes" is caught. */
@@ -115,8 +115,8 @@ export function loadConfig(file: string, shownAs: string = file): Config {
   return { exclude, defaultExcludes: (settings.defaultExcludes as boolean | undefined) ?? true, minSeverity, failOn, rules };
 }
 
-/** Checks the "rules" setting: an object whose keys are rule IDs and whose values are "on" or "off". */
-function checkRules(value: unknown, shownAs: string): Record<string, "on" | "off"> {
+/** Checks the "rules" setting: an object whose keys are rule IDs and whose values are "proven", "on" or "off". */
+function checkRules(value: unknown, shownAs: string): Record<string, RuleSetting> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new ConfigError(`${shownAs}: "rules" must be an object, for example { "LP001": "on" }`);
   }
@@ -124,11 +124,11 @@ function checkRules(value: unknown, shownAs: string): Record<string, "on" | "off
     if (!KNOWN_RULE_IDS.includes(id)) {
       throw new ConfigError(`${shownAs}: "rules": unknown rule "${id}" (known rules: ${KNOWN_RULE_IDS.join(", ")})`);
     }
-    if (setting !== "on" && setting !== "off") {
-      throw new ConfigError(`${shownAs}: "rules": "${id}" must be "on" or "off"`);
+    if (!RULE_SETTINGS.includes(setting as RuleSetting)) {
+      throw new ConfigError(`${shownAs}: "rules": "${id}" must be "proven", "on" or "off"`);
     }
   }
-  return value as Record<string, "on" | "off">;
+  return value as Record<string, RuleSetting>;
 }
 
 function isDirectory(p: string): boolean {

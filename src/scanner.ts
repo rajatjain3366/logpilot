@@ -4,7 +4,10 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { checkSourceFile, DEFAULT_ENABLED_RULE_IDS, findSyntaxErrors, parseSource } from "./analyze.js";
+import { checkSourceFile, findSyntaxErrors, isShown, parseSource, type RuleSetting, ruleSettings, rulesThatRun } from "./analyze.js";
+
+/** Every rule "proven": what a scan uses when nothing says otherwise. */
+const DEFAULT_SETTINGS = ruleSettings();
 import { ExcludePatterns, fileSkipByContent, fileSkipByName, folderSkip } from "./file-selection.js";
 import { attachFixPreviews } from "./fixes.js";
 import { findExpressHandlers } from "./rules/express.js";
@@ -26,6 +29,11 @@ export interface ScanResult {
   warnings: ScanWarning[];
   /** Files and folders that were not scanned, and why. */
   skipped: SkippedPath[];
+  /**
+   * Findings of rules set to "proven" at levels that are not proven yet on unseen code: not shown
+   * (not in `findings`, never affect the exit code), only counted in the summary.
+   */
+  hiddenNotProven: Finding[];
   /** With `keepTexts`: display path -> the exact text that was scanned. */
   texts?: Map<string, string>;
 }
@@ -40,8 +48,8 @@ export interface ScanOptions {
   excludeRoot?: string;
   /** Attach a proposed fix (or the reason there is none) to each finding. Never applied. Default: false. */
   fixPreview?: boolean;
-  /** The rules that run (see enabledRuleIds in analyze.ts). Default: the rules that are on by default. */
-  enabledRules?: ReadonlySet<string>;
+  /** Each rule's setting (see ruleSettings in analyze.ts). Default: every rule "proven". */
+  rules?: ReadonlyMap<string, RuleSetting>;
   /** Keep each scanned file's text in `texts` (for `logpilot fix`, which must apply fixes to exactly this text). */
   keepTexts?: boolean;
 }
@@ -68,7 +76,7 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
     throw new Error(`path "${targetPath}" does not exist`);
   }
 
-  const result: ScanResult = { filesScanned: 0, filesWithExpressHandlers: 0, findings: [], suppressed: [], warnings: [], skipped: [] };
+  const result: ScanResult = { filesScanned: 0, filesWithExpressHandlers: 0, findings: [], suppressed: [], warnings: [], skipped: [], hiddenNotProven: [] };
   const scanRoot = scanRootOf(absoluteTarget);
   const excludeRoot = options.excludeRoot ?? scanRoot;
   const excludes = new ExcludePatterns(options.exclude ?? [], excludeRoot);
@@ -130,7 +138,11 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
           "findings in this file may be incomplete",
       });
     }
-    const { kept, suppressed, warnings } = checkSourceFile(sourceFile, displayPath, options.enabledRules ?? DEFAULT_ENABLED_RULE_IDS);
+    const settings = options.rules ?? DEFAULT_SETTINGS;
+    const { kept: all, suppressed, warnings } = checkSourceFile(sourceFile, displayPath, rulesThatRun(settings));
+    // Default = proven only: findings at levels not proven on unseen code are hidden, and counted.
+    const kept = all.filter((finding) => isShown(finding, settings));
+    result.hiddenNotProven.push(...all.filter((finding) => !isShown(finding, settings)));
     // Only to tell the user when LP003 had nothing to check (it looks at Express handlers only).
     if (findExpressHandlers(sourceFile).length > 0) result.filesWithExpressHandlers++;
     if (options.fixPreview) {

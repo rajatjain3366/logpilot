@@ -7,7 +7,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { enabledRuleIds, KNOWN_RULE_IDS } from "./analyze.js";
+import { KNOWN_RULE_IDS, ruleSettings } from "./analyze.js";
 import { type Config, ConfigError, findConfigFile, loadConfig } from "./config.js";
 import { checkExcludePattern } from "./file-selection.js";
 import { unsupportedNodeVersion } from "./node-version.js";
@@ -46,8 +46,8 @@ Scan options:
   --no-config              Do not use any config file
   --exclude <pattern>      Do not scan matching files or folders, e.g. "docs/**" (can be repeated;
                            adds to "exclude" in the config file)
-  --enable <rule>          Turn on a rule that is off by default, e.g. --enable LP001 (can be
-                           repeated; wins over "rules" in the config file)
+  --enable <rule>          Show all findings of a rule, also the levels not proven yet, e.g.
+                           --enable LP002 (can be repeated; wins over "rules" in the config file)
   --show-skipped           List every file and folder that was not scanned, and why
   --no-default-excludes    Also scan build output, third-party folders, minified and vendored files
                            (node_modules and .git are never scanned)
@@ -62,7 +62,9 @@ Scan options:
                            are listed under the first one, and later findings of the same kind
                            refer back to the first one)
 
-Rules: LP001 empty-catch (off by default), LP002 lost-error-cause, LP003 unlogged-error-response.
+Rules: LP001 empty-catch, LP002 lost-error-cause, LP003 unlogged-error-response.
+  By default only findings proven accurate on unseen code are shown: today ${provenText()}.
+  The others are counted in the summary; show them with --enable <rule>.
 
 Fix options: --config, --no-config, --exclude, --no-default-excludes (as for scan), and
   --output <file>          Write a JSON record of the run (what was written, declined, skipped)
@@ -98,6 +100,12 @@ const SCAN_ONLY_OPTIONS = ["show-skipped", "min-severity", "fail-on", "format", 
 function readVersion(): string {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   return packageJson.version;
+}
+
+/** The proven rules and levels, for --help, e.g. "LP003 at high severity" (from RULES, so it never goes stale). */
+function provenText(): string {
+  const proven = RULES.filter((rule) => rule.provenLevels.length > 0).map((rule) => `${rule.id} at ${rule.provenLevels.join(" and ")} severity`);
+  return proven.length > 0 ? proven.join(", ") : "none";
 }
 
 /** Prints a usage error to stderr and returns the "tool error" exit code. */
@@ -233,20 +241,15 @@ function main(args: string[]): number | Promise<number> {
     process.stderr.write(`Error: ${levelProblem}\n`);
     return EXIT_TOOL_ERROR;
   }
-  // Which rules run: the defaults, then the config file's "rules", then --enable.
-  const configRules = config?.rules ?? {};
-  const enabledRules = enabledRuleIds(configRules, cliEnable);
-  // Rules that are off only because nobody turned them on: the summary says so, with how to turn them on.
-  const offByDefault = RULES.filter((rule) => !rule.defaultEnabled && !enabledRules.has(rule.id) && configRules[rule.id] === undefined).map(
-    (rule) => ({ id: rule.id, name: rule.name, reason: rule.offByDefaultReason ?? "" }),
-  );
+  // Each rule's setting: "proven" (default), then the config file's "rules", then --enable ("on").
+  const settings = ruleSettings(config?.rules ?? {}, cliEnable);
   const fileSelection = {
     // A command-line flag wins over the config file; --exclude adds to the config's list.
     defaultExcludes: parsed.values["no-default-excludes"] ? false : (config?.defaultExcludes ?? true),
     exclude: [...(config?.exclude ?? []), ...cliExcludes],
     // Patterns are relative to the config file's folder; without one, to the scanned folder.
     excludeRoot: configFile === undefined ? undefined : path.dirname(configFile),
-    enabledRules,
+    rules: settings,
   };
   if (command === "fix") return fix(target, fileSelection, output);
 
@@ -270,7 +273,13 @@ function main(args: string[]): number | Promise<number> {
     // Warnings are inside the JSON, so stdout (or the --output file) is the only thing to read.
     report = formatJson(result, {
       toolVersion: readVersion(),
-      rules: RULES.map((rule) => ({ id: rule.id, name: rule.name, version: rule.version, enabled: enabledRules.has(rule.id) })),
+      rules: RULES.map((rule) => ({
+        id: rule.id,
+        name: rule.name,
+        version: rule.version,
+        setting: settings.get(rule.id) ?? "proven",
+        provenLevels: [...rule.provenLevels],
+      })),
       config: {
         file: shownConfigFile ?? null,
         defaultExcludes: parsed.values["no-default-excludes"] ? false : (config?.defaultExcludes ?? true),
@@ -297,7 +306,6 @@ function main(args: string[]): number | Promise<number> {
         hiddenBelowMinSeverity: result.findings.length - shown.length,
         minSeverity,
         fixPreview,
-        offByDefault,
         verbose: parsed.values.verbose === true,
         // In a terminal, wrap at its width (so words are not cut in the middle); otherwise at 100.
         width: reportWidth(process.stdout, output !== undefined),

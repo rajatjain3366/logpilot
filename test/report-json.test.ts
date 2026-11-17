@@ -1,4 +1,4 @@
-// Tests for src/report-json.ts: the shape of the JSON report (schema version 3).
+// Tests for src/report-json.ts: the shape of the JSON report (schema version 4).
 // Tools will read this format, so the keys, their order and the counts are checked exactly.
 
 import { describe, expect, it } from "vitest";
@@ -25,6 +25,7 @@ function finding(overrides: Partial<Finding>): Finding {
 const result: ScanResult = {
   filesScanned: 3,
   filesWithExpressHandlers: 2,
+  hiddenNotProven: [],
   findings: [finding({ line: 2 }), finding({ line: 9, severity: "low" })],
   suppressed: [{ finding: finding({ line: 20 }), reason: "the cache is optional", commentLine: 19 }],
   // Deliberately out of order: the JSON report must sort them.
@@ -44,8 +45,8 @@ const result: ScanResult = {
 const context: JsonReportContext = {
   toolVersion: "9.9.9",
   rules: [
-    { id: "LP001", name: "empty-catch", version: 1, enabled: true },
-    { id: "LP002", name: "lost-error-cause", version: 3, enabled: false },
+    { id: "LP001", name: "empty-catch", version: 1, setting: "on", provenLevels: [] },
+    { id: "LP002", name: "lost-error-cause", version: 3, setting: "off", provenLevels: ["high"] },
   ],
   config: { file: null, defaultExcludes: true, exclude: ["docs/**"], minSeverity: "low", failOn: "none", fixPreview: false },
   shown: result.findings,
@@ -53,7 +54,7 @@ const context: JsonReportContext = {
   exitCode: 0,
 };
 
-describe("formatJson (schema version 3)", () => {
+describe("formatJson (schema version 4)", () => {
   it("is valid JSON with the top-level keys in a fixed order, ending with a newline", () => {
     const text = formatJson(result, context);
 
@@ -76,12 +77,14 @@ describe("formatJson (schema version 3)", () => {
 
     // CHANGED ON PURPOSE (Milestone 3): schema version 2 adds fix, config.fixPreview and summary.fixes.
     // CHANGED ON PURPOSE (v0.4.2): schema version 3: paths are relative to the scanned folder.
-    expect(report.schemaVersion).toBe(3);
+    // CHANGED ON PURPOSE (v0.6.0): schema version 4: config.rules can hold "proven" (default = proven only).
+    expect(report.schemaVersion).toBe(4);
     expect(report.tool).toEqual({ name: "logpilot", version: "9.9.9" });
     // CHANGED ON PURPOSE (v0.4.3): `enabled` added to each rule.
+    // CHANGED ON PURPOSE (v0.6.0): `setting` and `provenLevels` added; `enabled` = the rule ran (setting not "off").
     expect(report.rules).toEqual([
-      { id: "LP001", name: "empty-catch", version: 1, enabled: true },
-      { id: "LP002", name: "lost-error-cause", version: 3, enabled: false },
+      { id: "LP001", name: "empty-catch", version: 1, enabled: true, setting: "on", provenLevels: [] },
+      { id: "LP002", name: "lost-error-cause", version: 3, enabled: false, setting: "off", provenLevels: ["high"] },
     ]);
     // CHANGED ON PURPOSE (Milestone 3, schema version 2): config.fixPreview added.
     // CHANGED ON PURPOSE (v0.4.3): config.rules added (every rule, "on" or "off").
@@ -104,6 +107,7 @@ describe("formatJson (schema version 3)", () => {
       filesWithExpressHandlers: 2, // CHANGED ON PURPOSE (v0.4.2): key added (0 = LP003 had nothing to check)
       findings: 2,
       patterns: 2, // CHANGED ON PURPOSE (v0.4.3): key added (the test findings have no pattern: 1 each)
+      hiddenNotProven: { LP001: 0, LP002: 0 }, // CHANGED ON PURPOSE (v0.6.0): key added
       findingsByRule: { LP001: 2, LP002: 0 },
       findingsBySeverity: { high: 0, medium: 1, low: 1 },
       hiddenBelowMinSeverity: 0,
@@ -196,7 +200,7 @@ describe("formatJson: fix previews (schema version 2, Milestone 3)", () => {
   const fixResult: ScanResult = { ...result, findings: [withFix, withoutFix, lp001], suppressed: [] };
   const fixContext: JsonReportContext = {
     ...context,
-    rules: [...context.rules, { id: "LP003", name: "unlogged-error-response", version: 3, enabled: true }],
+    rules: [...context.rules, { id: "LP003", name: "unlogged-error-response", version: 3, setting: "proven", provenLevels: ["high"] }],
     config: { ...context.config, fixPreview: true },
     shown: fixResult.findings,
   };

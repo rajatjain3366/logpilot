@@ -1,4 +1,4 @@
 {
   "exclude": ["test/fixtures/**"],
-  "rules": { "LP001": "on" }
+  "rules": { "LP001": "on", "LP002": "on", "LP003": "on" }
 }
