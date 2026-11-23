@@ -2,6 +2,7 @@
 // for each one it may not. Every test works in a throw-away git repository (test/temp-repo.ts).
 
 import { execFileSync } from "node:child_process";
+import { PROGRAM_TIME_LIMIT_MS } from "./run-limited.js";
 import { chmodSync, linkSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -90,7 +91,7 @@ describe("checkFile: files that may be changed", () => {
   it.runIf(process.platform === "win32")("accepts files when the repository is scanned through a junction to it (Windows)", () => {
     withRepo({ "src/app.js": "a\n" }, (repo) => {
       const junction = path.join(repo, "..", "repo through a junction");
-      execFileSync("cmd.exe", ["/c", "mklink", "/J", junction, repo], { stdio: "ignore" });
+      execFileSync("cmd.exe", ["/c", "mklink", "/J", junction, repo], { stdio: "ignore", timeout: PROGRAM_TIME_LIMIT_MS });
 
       const opened = openRepository(junction);
       if (!opened.ok) throw new Error(opened.reason);
@@ -166,7 +167,7 @@ describe("checkFile: files that are refused, with the reason", () => {
 
   it.runIf(process.platform === "win32")("refuses a file reached through a junction (Windows)", () => {
     withRepo({ "real/app.js": "a\n" }, (repo) => {
-      execFileSync("cmd.exe", ["/c", "mklink", "/J", path.join(repo, "junction"), path.join(repo, "real")], { stdio: "ignore" });
+      execFileSync("cmd.exe", ["/c", "mklink", "/J", path.join(repo, "junction"), path.join(repo, "real")], { stdio: "ignore", timeout: PROGRAM_TIME_LIMIT_MS });
       expect(verdict(repo, "junction/app.js")).toBe("it is reached through a symbolic link or junction");
     });
   });

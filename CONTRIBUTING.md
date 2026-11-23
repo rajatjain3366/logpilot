@@ -127,6 +127,9 @@ docs/
   may report it). Each rule's tests run it over every file in `fixtures/negative/`.
 - The end-to-end test in `test/cli.test.ts` checks that a scan creates, deletes or changes no
   file, with and without `--fix-preview`. Keep it passing.
+- Start programs from tests (the CLI, git, ...) with `runLimited` from `test/run-limited.ts`, not
+  `spawnSync` directly. It stops a program that hangs after 60 s and fails the test with the
+  program, the test name and the time. A test that takes over 30 s fails too (`vitest.config.ts`).
 - A CRLF test file would be turned into LF by git (see `.gitattributes`), so CRLF inputs are built
   as strings inside the tests instead of fixture files.
 - If you change `docs/evaluation.md` or anything in `docs/eval-data/`, also run the cross-check

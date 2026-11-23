@@ -20,6 +20,8 @@ projects; it is not a precision claim either.
 [Milestone 4](#milestone-4-logpilot-fix-on-copies-of-the-tuning-apps) checks that `logpilot fix`
 writes exactly the fixes it shows, on copies of the tuning apps (99 of 99 applied, every changed
 file only gained characters).
+[Milestone T's robustness run](#milestone-t-robustness-run-on-100-repositories-not-a-precision-claim)
+checks for crashes, hangs and stable output on 100 repositories; it is not a precision claim either.
 
 ## How to read the numbers, and what they decide (v0.6.0)
 
@@ -503,6 +505,63 @@ evaluation were used, and only **copies** of them; the held-out apps were never 
 **What this does not measure:** whether the fixed apps still behave the same at runtime (no app
 code was run), and how often real projects hit the "Not asked" refusals: the copies were freshly
 committed, so every file was clean and tracked.
+
+## Milestone T: robustness run on 100 repositories (not a precision claim)
+
+**What it checks:** that LogPilot does not crash, hang, change files, or give different output for
+the same input, on code it has never seen. No finding was labelled.
+
+**Protocol.** Written and hashed before any search (SHA-256 `886de965…7ee60`, 2026-11-23), with two
+tooling-only amendments (a retried network error during the search; `core.longpaths` for `git
+status` on Windows). 100 public repositories, at most one per owner, none from an earlier sample
+or owner, pinned to a commit, chosen by fixed GitHub searches in nine groups:
+
+| Group | Repositories |
+|---|---|
+| Express backends (JavaScript / TypeScript) | 15 / 15 |
+| Large: 2,000+ source files (TypeScript / JavaScript) | 12 / 8 |
+| Monorepos (workspaces) | 15 |
+| React (JSX/TSX) | 15 |
+| Decorators (NestJS) | 5 |
+| Flow-annotated JavaScript | 5 |
+| Node.js, general | 10 |
+
+Coverage: 61 TypeScript-heavy, 30 ESM and 57 CommonJS packages, 16 with a source file over 1 MB;
+46 small (under 200 source files), 29 medium, 25 large. In all, 151,086 files scanned per command.
+Repository names stay private; only counts are published.
+
+**Runs.** Each repository, each command twice, run from the repository's folder with `--no-config`:
+the default scan, and all rules on with `--fix-preview` (text and JSON). 600 commands per run, on
+Windows 11, Node 22.23.4.
+
+| | Run A | Run B (after the fix below) |
+|---|---|---|
+| Crashes (exit code not 0) | 6 (one repository, every command) | **0** |
+| Hangs | 0 | **0** |
+| Run 1 and run 2 byte-identical | all | **all** |
+| `fix-validation-failed` warnings | 0 | **0** |
+| Files changed by a scan | 0 (one false report, see below) | **0** |
+| Slowest command | 279 s | 39 s |
+| Most memory (peak) | 484 MB | 610 MB |
+
+- **The one failure, and the fix.** A Flow type-definition file (191 KB) made TypeScript's parser
+  recurse until the call stack ran out: in a `.js` file it reads each Flow generic such as `<T>` as
+  a JSX tag, nested about 2,900 deep. LogPilot stopped the whole scan (exit code 2). Now only that
+  file is left unchecked, with a warning (`too-deeply-nested`) and a summary line; the other
+  4,997 files of that repository give the same findings as when the file is excluded. A regression
+  test with a made-up file of nested tags covers it.
+- **Every text report was identical in run A and run B**, a day apart, except that repository's.
+- **The false "files changed" report** was the run script's own `git status`, which could not open
+  a path longer than 260 characters on Windows and reported the file as deleted. The file was
+  unchanged; with `core.longpaths=true` the status is clean.
+- **Speed: the first read of freshly cloned files dominates on this machine.** Run A's slowest
+  command (279 s, 26,868 files) was the first one to read that repository; its other five commands
+  took 26 to 30 s. Reading the same files of a fresh clone with plain `readFileSync`, without LogPilot,
+  took 254 s the first time and 10 s the second, so about 244 s was file access (real-time
+  antivirus scanning was on), not LogPilot. Run B, with warm files, never took more than 39 s.
+- **Syntax LogPilot cannot parse.** 6,726 files in 12 repositories had syntax errors for
+  TypeScript's parser, mostly Flow annotations. They are scanned as far as possible, with a
+  warning, and their findings may be incomplete.
 
 ## Milestone 4: hardening found while building `logpilot fix`
 

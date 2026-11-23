@@ -301,8 +301,10 @@ describe("formatReport: findings hidden because not proven (Milestone T)", () =>
   ];
 
   it("counts the hidden findings per rule (naming the hidden levels of a rule with proven levels) and says how to show them", () => {
+    // CHANGED ON PURPOSE (v0.6.0, after T1): the first line says that findings are hidden, so
+    // "0 findings" is never mistaken for a clean result.
     expect(formatReport({ ...empty, hiddenNotProven: hidden })).toBe(
-      "Scanned 2 files, 0 findings\n" +
+      "Scanned 2 files: 0 proven findings, and 4 more hidden (not yet proven on unseen code; see below)\n" +
         "Hidden, not proven on unseen code yet: 4 findings (LP001: 1, LP002: 2, LP003 at low severity: 1).\n" +
         'Show them with --enable <rule>, or "rules": { "<rule>": "on" } in logpilot.config.json.\n',
     );
@@ -310,5 +312,19 @@ describe("formatReport: findings hidden because not proven (Milestone T)", () =>
 
   it("says nothing when no finding was hidden", () => {
     expect(formatReport({ ...empty, hiddenNotProven: [] })).toBe("Scanned 2 files, 0 findings\n");
+  });
+
+  it('calls the shown findings "proven" only when every one of them is at a proven level', () => {
+    const proven = makeFinding({ ruleId: "LP003", severity: "high" });
+    const onByUser = makeFinding({ ruleId: "LP002", severity: "high" }); // shown because the user set LP002 "on"
+    const firstLine = (findings: Finding[]) =>
+      formatReport({ ...empty, findings, hiddenNotProven: hidden.slice(0, 1) })
+        .split("\n")
+        .find((line) => line.startsWith("Scanned"));
+
+    expect(firstLine([proven])).toBe("Scanned 2 files: 1 proven finding (LP003: 1), and 1 more hidden (not yet proven on unseen code; see below)");
+    expect(firstLine([proven, onByUser])).toBe(
+      "Scanned 2 files: 2 findings shown (LP002: 1, LP003: 1), and 1 more hidden (not yet proven on unseen code; see below)",
+    );
   });
 });

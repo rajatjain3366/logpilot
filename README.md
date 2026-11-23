@@ -8,19 +8,20 @@ LogPilot is an open-source, local command-line tool that scans JavaScript and Ty
 (Node.js) projects for code that would leave you **without evidence** when something goes
 wrong in production, for example an error that is caught and then silently thrown away.
 
-> **Status: early prototype, v0.5.0.** Three rules exist today: LP001, LP002 and LP003. LP003
-> findings can show a proposed fix ([fix previews](#fix-previews)), and `logpilot fix` applies the
-> fixes you approve, one question at a time ([Applying fixes](#applying-fixes-logpilot-fix)). The
-> CLI is not published to npm yet; see [Quick start](#quick-start) for running it from this
-> repository. Before relying on the results, read [Accuracy](#accuracy).
-
-> **New in v0.5.0: `logpilot fix`.** It asks before every change, writes only files that git can
-> restore exactly, and tells you how to undo. `scan` stays read-only.
-
+> **Status: early prototype. `main` is on the way to v0.6.0** (the code on `main` still reports
+> version 0.5.0 until the release; the last release, v0.5.0, showed every finding by default).
+> Three rules exist: LP001, LP002 and LP003; **by default only LP003 at high severity is shown**.
+> LP003 findings can show a proposed fix ([fix previews](#fix-previews)), and `logpilot fix`
+> applies the fixes you approve, one question at a time
+> ([Applying fixes](#applying-fixes-logpilot-fix)). The CLI is not published to npm yet; see
+> [Quick start](#quick-start) for running it from this repository. Before relying on the results,
+> read [What you can rely on](#what-you-can-rely-on).
+>
 > **Changing in v0.6.0 (on `main`, not released yet): by default LogPilot shows only findings
 > proven accurate on unseen code.** Today that is **LP003 at high severity** (30 of 33 real
 > problems on 12 apps it was not designed on). LP001, LP002 and LP003's 4xx findings (*low*) still
-> run, but are hidden and counted in one summary line. **If your CI runs `--fail-on` and relied on
+> run, but are hidden; the first summary line says how many
+> (`Scanned 737 files: 0 proven findings, and 31 more hidden (...)`), and the next lines count them by rule. **If your CI runs `--fail-on` and relied on
 > LP002 or LP003-low findings, it no longer fails on them.** To see everything as before, add
 > `"rules": { "LP001": "on", "LP002": "on", "LP003": "on" }` to `logpilot.config.json`, or pass
 > `--enable <rule>` for each rule. See [What you can rely on](#what-you-can-rely-on).
@@ -117,6 +118,14 @@ compatible with. Small samples give wide ranges, so a new project can land anywh
 - **Your settings win.** `"rules": { "LP002": "on" }` or `--enable LP002` shows all of a rule's
   findings; `"off"` does not run it (see [Configuration](#configuration)).
 
+**Measured, not guaranteed: robustness.** On 100 public repositories LogPilot had never seen
+(151,086 files; Express apps, monorepos, React, decorators, Flow, up to 26,868 source files), every
+scan finished with no crash or hang, gave byte-identical output when repeated, and changed no
+file; the slowest took 39 s and the most memory used was 610 MB, on Windows with Node 22
+([details](docs/evaluation.md#milestone-t-robustness-run-on-100-repositories-not-a-precision-claim)).
+The first run found one crash, now fixed: a file nested too deeply for the parser stopped the whole
+scan; now only that file is skipped, with a warning.
+
 **Not promised:**
 
 - that every shown finding is a real problem (about 1 in 10 at LP003 high was not);
@@ -207,7 +216,7 @@ By default, findings that are not proven yet are hidden and counted at the end (
 `node dist/cli.js scan test/fixtures/positive/lp002-options-mistake.ts --no-config`):
 
 ```text
-Scanned 1 file, 0 findings
+Scanned 1 file: 0 proven findings, and 2 more hidden (not yet proven on unseen code; see below)
 No Express handlers found: LP003 and fix previews only check Express apps.
 Hidden, not proven on unseen code yet: 2 findings (LP002: 2).
 Show them with --enable <rule>, or "rules": { "<rule>": "on" } in logpilot.config.json.
@@ -274,6 +283,12 @@ The report goes to **stdout** (or to the `--output` file); errors and warnings g
 A file with syntax errors is still scanned as far as possible, and LogPilot warns about it
 (`Warning: x.js: 1 syntax error (first at line 1: Expression expected.); findings in this file may be incomplete`)
 and counts such files in the summary. Warnings do not change the exit code.
+
+A file nested so deeply that the TypeScript parser runs out of call stack (seen in a large Flow
+type-definition file, where every `<T>` in a `.js` file is read as a JSX tag) is **not checked**.
+The scan continues with the other files, warns
+(`Warning: x.js: not checked: its code is nested too deeply for the parser ...`), and says in the
+summary `1 file could not be checked: nested too deeply for the parser (see the warnings).`
 
 ## Fix previews
 
@@ -816,7 +831,8 @@ The report has this shape (schema version 4). The `summary` below is real: the M
 driver at the commit listed in [docs/evaluation.md](docs/evaluation.md), scanned with default
 settings. It is a library, so LP003 finds nothing there (the 2 files with Express handlers are a
 small docs preview server and a test with a mock request handler). Its 18 LP001 and 13 LP002
-findings are not proven, so they are hidden and counted in `hiddenNotProven`, and 0 are shown:
+findings are not proven, so they are hidden and counted in `hiddenNotProvenTotal` and
+`hiddenNotProven`, right next to `findings`, and 0 are shown:
 
 ```json
 {
@@ -835,8 +851,9 @@ findings are not proven, so they are hidden and counted in `hiddenNotProven`, an
     "filesScanned": 737,
     "filesWithExpressHandlers": 2,
     "findings": 0,
-    "patterns": 0,
+    "hiddenNotProvenTotal": 31,
     "hiddenNotProven": { "LP001": 18, "LP002": 13, "LP003": 0 },
+    "patterns": 0,
     "findingsByRule": { "LP001": 0, "LP002": 0, "LP003": 0 },
     "findingsBySeverity": { "high": 0, "medium": 0, "low": 0 },
     "hiddenBelowMinSeverity": 0,
@@ -844,6 +861,7 @@ findings are not proven, so they are hidden and counted in `hiddenNotProven`, an
     "skippedFiles": { "minified": 275, "vendored": 15, "userExclude": 0 },
     "skippedFolders": { "default": 1, "userExclude": 0 },
     "filesWithSyntaxErrors": 0,
+    "filesTooDeeplyNested": 0,
     "warnings": 0,
     "exitCode": 0,
     "fixes": null
@@ -862,7 +880,7 @@ findings are not proven, so they are hidden and counted in `hiddenNotProven`, an
 | `findings` | `ruleId`, `ruleName`, `file`, `line`, `column`, `severity`, `confidence`, `evidence`, `explanation`, `suggestion`, `pattern`, `fix` |
 | `suppressed` | `finding` (as above), `reason`, `commentLine` |
 | `skipped` | `path`, `kind` (`file` or `folder`), `reason` (`default-folder`, `minified-name`, `minified-content`, `vendored-banner`, `user-exclude`), `detail` |
-| `warnings` | `type` (`read-error`, `syntax-error`, `unused-exclude`, `invalid-suppression`, `unused-suppression`, `fix-validation-failed`), `file`, `line`, `message` |
+| `warnings` | `type` (`read-error`, `syntax-error`, `too-deeply-nested`, `unused-exclude`, `invalid-suppression`, `unused-suppression`, `fix-validation-failed`), `file`, `line`, `message` |
 
 **Fixes in JSON.** Without `--fix-preview`, every finding has `"fix": null`, `config.fixPreview` is
 `false`, and `summary.fixes` is `null`. With it, `summary.fixes` is
@@ -897,9 +915,12 @@ findings are not proven, so they are hidden and counted in `hiddenNotProven`, an
     "off" and "no findings" can be told apart.
   - Version 4 (v0.6.0): `config.rules` can hold `"proven"` (the new default) besides `"on"` and
     `"off"`. Added: `setting` and `provenLevels` for each rule (`enabled` now means the rule ran,
-    that is, its setting is not `"off"`), and `summary.hiddenNotProven`: per rule, the findings
-    that were found but hidden because their level is not proven. `findings`, `findingsByRule`
-    and `findingsBySeverity` count only shown findings.
+    that is, its setting is not `"off"`), and, right after `summary.findings`,
+    `summary.hiddenNotProvenTotal` and `summary.hiddenNotProven` (per rule): the findings that
+    were found but hidden because their level is not proven. `findings`, `findingsByRule`
+    and `findingsBySeverity` count only shown findings. Also new: the warning type
+    `too-deeply-nested` and `summary.filesTooDeeplyNested` (files the parser could not handle,
+    so they were not checked).
 - **Patterns.** Each LP001 and LP002 finding has a `pattern` ID such as `"LP002-dcfb2a11"`: the
   rule ID and 8 hex digits of a hash of its case, levels and code shape. Findings with the same ID
   share one explanation. The ID is the same on every run and every OS, and changes only if the

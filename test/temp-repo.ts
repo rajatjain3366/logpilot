@@ -1,7 +1,7 @@
 // Test helper (not a test file): throw-away git repositories in the system temp folder, for the
 // tests of git.ts, fix-preconditions.ts and fix-write.ts. Never inside this repository.
 
-import { spawnSync } from "node:child_process";
+import { runLimited } from "./run-limited.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,7 +15,7 @@ import { findProgram } from "../src/git.js";
 export function git(repo: string, ...args: string[]): string {
   const executable = findProgram("git");
   if (executable === undefined) throw new Error("git is not installed, or not on your PATH (the tests need it)");
-  const result = spawnSync(executable, ["-C", repo, ...args], { encoding: "utf8", windowsHide: true });
+  const result = runLimited(executable, ["-C", repo, ...args], { windowsHide: true });
   if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed (exit code ${result.status}): ${result.stderr.trim()}`);
   return result.stdout;
 }
@@ -82,8 +82,7 @@ function createRepo(dir: string, files: Record<string, string | Buffer>, options
  * Windows runners give for the temp folder. Same folder, different spelling.
  */
 export function shortPath(longPath: string): string {
-  return spawnSync("cmd.exe", [`/d /s /c "for %I in ("${longPath}") do @echo %~sI"`], {
-    encoding: "utf8",
+  return runLimited("cmd.exe", [`/d /s /c "for %I in ("${longPath}") do @echo %~sI"`], {
     windowsVerbatimArguments: true, // cmd.exe needs its quotes exactly as written
     windowsHide: true,
   }).stdout.trim();

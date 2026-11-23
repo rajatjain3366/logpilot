@@ -130,7 +130,14 @@ export interface SuppressedFinding {
 
 /** A problem that did not stop the scan. */
 export interface ScanWarning {
-  type: "read-error" | "syntax-error" | "unused-exclude" | "invalid-suppression" | "unused-suppression" | "fix-validation-failed";
+  type:
+    | "read-error"
+    | "syntax-error"
+    | "too-deeply-nested" // v0.6.0 (T2): the parser ran out of call stack; the file was not checked
+    | "unused-exclude"
+    | "invalid-suppression"
+    | "unused-suppression"
+    | "fix-validation-failed";
   /** The file or folder concerned, as shown in the report, if there is one. */
   file?: string;
   /** 1-based line, for syntax errors. */

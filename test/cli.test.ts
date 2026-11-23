@@ -1,7 +1,7 @@
 // End-to-end tests: run the real, built CLI (node dist/cli.js ...) the way a user
 // would, and check its output and exit codes. `npm test` builds dist/ first.
 
-import { spawnSync } from "node:child_process";
+import { runLimited } from "./run-limited.js";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -17,7 +17,7 @@ const ALL_ON = ["--enable", "LP001", "--enable", "LP002", "--enable", "LP003"];
 
 /** Runs `node dist/cli.js <args>` and captures what it printed and its exit code. */
 function runCli(args: string[], cwd: string = projectRoot) {
-  const result = spawnSync(process.execPath, [cliPath, ...args], { cwd, encoding: "utf8" });
+  const result = runLimited(process.execPath, [cliPath, ...args], { cwd });
   return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -795,7 +795,7 @@ describe("CLI: every path is relative to the scanned folder (v0.4.2)", () => {
 
       // The real check that the headers are valid: git itself accepts the diff (it only checks; nothing is changed).
       writeFileSync(path.join(dir, "fix.diff"), diff);
-      const check = spawnSync("git", ["apply", "--check", "--verbose", path.join(dir, "fix.diff")], { cwd: project, encoding: "utf8" });
+      const check = runLimited("git", ["apply", "--check", "--verbose", path.join(dir, "fix.diff")], { cwd: project });
       expect(check.error, "git must be installed to run this test").toBeUndefined();
       expect([check.status, check.stderr]).toEqual([0, "Checking patch src/my routes/users.js...\n"]);
     });
@@ -807,6 +807,28 @@ describe("CLI: every path is relative to the scanned folder (v0.4.2)", () => {
 
       expect(stdout).toContain("Config file: ../logpilot.config.json\n");
       expect(stderr).toBe('Warning: exclude pattern "nothing/**" matched nothing (patterns are relative to ..); check the spelling\n');
+    });
+  });
+});
+
+// T2 robustness run (v0.6.0): one file too deeply nested for the parser stopped the whole scan (exit 2).
+describe("CLI: a file too deeply nested for the parser (T2)", () => {
+  // One tag per line: a single very long line would be skipped as minified before parsing.
+  const files = { "a.js": EMPTY_CATCH, "deep.js": "const x = " + "<T>\n".repeat(20_000) + ";\n" };
+
+  it("finishes (exit 0), warns on stderr, and says in the summary that a file could not be checked", () => {
+    withProject(files, (dir) => {
+      const { exitCode, stdout, stderr } = runCli(["scan", ".", ...ALL_ON], dir);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe(
+        "Warning: deep.js: not checked: its code is nested too deeply for the parser (the call stack ran out); no findings are reported for it\n",
+      );
+      expect(stdout).toContain("Scanned 1 file, 1 finding (LP001: 1)\n");
+      expect(stdout).toContain("1 file could not be checked: nested too deeply for the parser (see the warnings).\n");
+      const report = JSON.parse(runCli(["scan", ".", ...ALL_ON, "--format", "json"], dir).stdout);
+      expect(report.summary.filesTooDeeplyNested).toBe(1);
+      expect(report.warnings.map((w: { type: string }) => w.type)).toEqual(["too-deeply-nested"]);
     });
   });
 });
@@ -868,7 +890,8 @@ describe("CLI: default = proven only (v0.6.0)", () => {
       expect([exitCode, stderr]).toEqual([0, ""]);
       expect(stdout.startsWith("c.js:3:")).toBe(true); // the only finding shown
       expect(stdout).not.toMatch(/^[abd]\.js:/m);
-      expect(stdout.endsWith(`Scanned 4 files, 1 finding (LP003: 1)\n${hiddenLine("LP001: 1, LP002: 1, LP003 at low severity: 1", "3 findings")}`)).toBe(true);
+      // CHANGED ON PURPOSE (v0.6.0, after T1): the first line says that findings are hidden.
+      expect(stdout.endsWith(`Scanned 4 files: 1 proven finding (LP003: 1), and 3 more hidden (not yet proven on unseen code; see below)\n${hiddenLine("LP001: 1, LP002: 1, LP003 at low severity: 1", "3 findings")}`)).toBe(true);
     });
   });
 
@@ -886,7 +909,10 @@ describe("CLI: default = proven only (v0.6.0)", () => {
   it('shows all findings of a rule with --enable or "on" in the config file; the line counts only what is still hidden', () => {
     withProject(files, (dir) => {
       const flag = runCli(["scan", ".", "--enable", "LP002", "--enable", "LP003"], dir).stdout;
-      expect(flag).toContain(`Scanned 4 files, 3 findings (LP002: 1, LP003: 2)\n${hiddenLine("LP001: 1", "1 finding")}`);
+      // CHANGED ON PURPOSE (v0.6.0, after T1): LP002 and LP003 low are shown but not proven, so "shown", not "proven".
+      expect(flag).toContain(
+        `Scanned 4 files: 3 findings shown (LP002: 1, LP003: 2), and 1 more hidden (not yet proven on unseen code; see below)\n${hiddenLine("LP001: 1", "1 finding")}`,
+      );
       const all = runCli(["scan", ".", ...ALL_ON], dir).stdout;
       expect(all.endsWith("Scanned 4 files, 4 findings (LP001: 1, LP002: 1, LP003: 2)\n")).toBe(true);
       expect(all).not.toContain("not proven");
@@ -1029,7 +1055,7 @@ describe("CLI: fix (Milestone 4)", () => {
   it("refuses to run without a terminal (input piped), with exit code 2, and changes nothing", () => {
     withProject({ "src/app.js": HANDLER_FILE }, (dir) => {
       const before = fingerprintFolder(dir);
-      const result = spawnSync(process.execPath, [cliPath, "fix", "."], { cwd: dir, input: "y\ny\ny\n", encoding: "utf8" });
+      const result = runLimited(process.execPath, [cliPath, "fix", "."], { cwd: dir, input: "y\ny\ny\n" });
 
       expect(result.status).toBe(2);
       expect(result.stdout).toBe("");

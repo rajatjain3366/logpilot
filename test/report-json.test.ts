@@ -106,8 +106,10 @@ describe("formatJson (schema version 4)", () => {
       filesScanned: 3,
       filesWithExpressHandlers: 2, // CHANGED ON PURPOSE (v0.4.2): key added (0 = LP003 had nothing to check)
       findings: 2,
+      // CHANGED ON PURPOSE (v0.6.0): hidden counts added, right after `findings`.
+      hiddenNotProvenTotal: 0,
+      hiddenNotProven: { LP001: 0, LP002: 0 },
       patterns: 2, // CHANGED ON PURPOSE (v0.4.3): key added (the test findings have no pattern: 1 each)
-      hiddenNotProven: { LP001: 0, LP002: 0 }, // CHANGED ON PURPOSE (v0.6.0): key added
       findingsByRule: { LP001: 2, LP002: 0 },
       findingsBySeverity: { high: 0, medium: 1, low: 1 },
       hiddenBelowMinSeverity: 0,
@@ -115,6 +117,7 @@ describe("formatJson (schema version 4)", () => {
       skippedFiles: { minified: 2, vendored: 1, userExclude: 0 },
       skippedFolders: { default: 1, userExclude: 0 },
       filesWithSyntaxErrors: 1,
+      filesTooDeeplyNested: 0, // CHANGED ON PURPOSE (v0.6.0, T2): key added
       warnings: 3,
       exitCode: 0,
       fixes: null, // CHANGED ON PURPOSE (Milestone 3, schema version 2): null without --fix-preview
@@ -175,6 +178,14 @@ describe("formatJson (schema version 4)", () => {
     const report = JSON.parse(formatJson(result, context));
 
     expect(report.warnings.map((w: { file: string | null }) => w.file)).toEqual([null, "src/a.js", "src/z.js"]);
+  });
+
+  it("writes the hidden findings next to `findings`: the total, then per rule (v0.6.0)", () => {
+    const hidden = [finding({ line: 30 }), finding({ ruleId: "LP002", line: 31 }), finding({ ruleId: "LP002", line: 32 })];
+    const { summary } = JSON.parse(formatJson({ ...result, hiddenNotProven: hidden }, context));
+
+    expect(Object.keys(summary).slice(2, 6)).toEqual(["findings", "hiddenNotProvenTotal", "hiddenNotProven", "patterns"]);
+    expect([summary.findings, summary.hiddenNotProvenTotal, summary.hiddenNotProven]).toEqual([2, 3, { LP001: 1, LP002: 2 }]);
   });
 
   it("gives the same text for the same input", () => {

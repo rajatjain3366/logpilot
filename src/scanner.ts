@@ -123,37 +123,29 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
       result.skipped.push({ path: displayPath, kind: "file", ...skipByContent });
       continue;
     }
-    const sourceFile = parseSource(file, text);
-    const syntaxErrors = findSyntaxErrors(sourceFile);
-    if (syntaxErrors.length > 0) {
-      const first = syntaxErrors[0];
-      const line = first.start === undefined ? 1 : sourceFile.getLineAndCharacterOfPosition(first.start).line + 1;
-      const count = syntaxErrors.length === 1 ? "1 syntax error" : `${syntaxErrors.length} syntax errors`;
+    let checked: ReturnType<typeof checkFile>;
+    try {
+      checked = checkFile(file, displayPath, text, options, scanRoot);
+    } catch (error) {
+      // T2 robustness run: in a .js file, TypeScript's parser reads every Flow generic such as `<T>`
+      // as a JSX element, and a large Flow type file nested them thousands deep, beyond the call
+      // stack. One such file must not stop the whole scan: it is reported and not checked. Any
+      // other error is a bug in LogPilot and still stops the scan.
+      if (!isStackOverflow(error)) throw error;
       result.warnings.push({
-        type: "syntax-error",
+        type: "too-deeply-nested",
         file: displayPath,
-        line,
-        message:
-          `${displayPath}: ${count} (first at line ${line}: ${ts.flattenDiagnosticMessageText(first.messageText, " ")}); ` +
-          "findings in this file may be incomplete",
+        message: `${displayPath}: not checked: its code is nested too deeply for the parser (the call stack ran out); no findings are reported for it`,
       });
+      continue;
     }
-    const settings = options.rules ?? DEFAULT_SETTINGS;
-    const { kept: all, suppressed, warnings } = checkSourceFile(sourceFile, displayPath, rulesThatRun(settings));
-    // Default = proven only: findings at levels not proven on unseen code are hidden, and counted.
-    const kept = all.filter((finding) => isShown(finding, settings));
-    result.hiddenNotProven.push(...all.filter((finding) => !isShown(finding, settings)));
-    // Only to tell the user when LP003 had nothing to check (it looks at Express handlers only).
-    if (findExpressHandlers(sourceFile).length > 0) result.filesWithExpressHandlers++;
-    if (options.fixPreview) {
-      // Proposed fixes are made and checked in memory, from the text already read: nothing is written.
-      // Logger detection may read one imported module, but only inside the scanned folder.
-      warnings.push(...attachFixPreviews(sourceFile, displayPath, kept, syntaxErrors.length > 0, scanRoot));
-    }
+    // Added only now that the whole file was checked, so a file that fails leaves nothing behind.
+    if (checked.hasExpressHandlers) result.filesWithExpressHandlers++;
     if (options.keepTexts) (result.texts ??= new Map()).set(displayPath, text);
-    result.findings.push(...kept);
-    result.suppressed.push(...suppressed);
-    result.warnings.push(...warnings);
+    result.findings.push(...checked.kept);
+    result.hiddenNotProven.push(...checked.hidden);
+    result.suppressed.push(...checked.suppressed);
+    result.warnings.push(...checked.warnings);
     result.filesScanned++;
   }
   result.skipped.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -165,6 +157,50 @@ export function scanPath(targetPath: string, cwd: string = process.cwd(), option
     });
   }
   return result;
+}
+
+/** True for "Maximum call stack size exceeded", the error a too-deeply nested file gives. */
+export function isStackOverflow(error: unknown): boolean {
+  return error instanceof RangeError && /call stack/i.test(error.message);
+}
+
+/** Parses one file and runs the rules (and fix previews) on it, without touching the scan result. */
+function checkFile(file: string, displayPath: string, text: string, options: ScanOptions, scanRoot: string) {
+  const sourceFile = parseSource(file, text);
+  const syntaxErrors = findSyntaxErrors(sourceFile);
+  const warnings: ScanWarning[] = [];
+  if (syntaxErrors.length > 0) {
+    const first = syntaxErrors[0];
+    const line = first.start === undefined ? 1 : sourceFile.getLineAndCharacterOfPosition(first.start).line + 1;
+    const count = syntaxErrors.length === 1 ? "1 syntax error" : `${syntaxErrors.length} syntax errors`;
+    warnings.push({
+      type: "syntax-error",
+      file: displayPath,
+      line,
+      message:
+        `${displayPath}: ${count} (first at line ${line}: ${ts.flattenDiagnosticMessageText(first.messageText, " ")}); ` +
+        "findings in this file may be incomplete",
+    });
+  }
+  const settings = options.rules ?? DEFAULT_SETTINGS;
+  const checked = checkSourceFile(sourceFile, displayPath, rulesThatRun(settings));
+  warnings.push(...checked.warnings);
+  // Default = proven only: findings at levels not proven on unseen code are hidden, and counted.
+  const kept = checked.kept.filter((finding) => isShown(finding, settings));
+  const hidden = checked.kept.filter((finding) => !isShown(finding, settings));
+  if (options.fixPreview) {
+    // Proposed fixes are made and checked in memory, from the text already read: nothing is written.
+    // Logger detection may read one imported module, but only inside the scanned folder.
+    warnings.push(...attachFixPreviews(sourceFile, displayPath, kept, syntaxErrors.length > 0, scanRoot));
+  }
+  return {
+    kept,
+    hidden,
+    suppressed: checked.suppressed,
+    warnings,
+    // Only to tell the user when LP003 had nothing to check (it looks at Express handlers only).
+    hasExpressHandlers: findExpressHandlers(sourceFile).length > 0,
+  };
 }
 
 /** What a folder walk needs: where paths are shown from, which defaults apply, and where to record skips. */

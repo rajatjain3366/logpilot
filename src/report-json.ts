@@ -18,7 +18,9 @@
 // Version 4 (v0.6.0, Milestone T, "default = proven only"): `config.rules` can now hold "proven" (the
 // default) besides "on" and "off", so the values a key holds changed. Also added: `setting` and
 // `provenLevels` for each rule (`enabled` = the rule ran: its setting is not "off"), and
-// `summary.hiddenNotProven` (findings hidden because their level is not proven, per rule).
+// `summary.hiddenNotProvenTotal` and `summary.hiddenNotProven` (findings hidden because their level
+// is not proven: in total and per rule), right after `summary.findings`; the warning type
+// "too-deeply-nested" and `summary.filesTooDeeplyNested` (files the parser could not handle).
 // Added in v0.4.3 (no version change, only new keys): `enabled` for each rule, `config.rules`,
 // `pattern` for each finding, and `summary.patterns`.
 
@@ -82,10 +84,12 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
       // 0 means LP003 (and fix previews) had nothing to check: it looks at Express handlers only.
       filesWithExpressHandlers: result.filesWithExpressHandlers,
       findings: context.shown.length,
+      // Next to `findings`, so "0 findings" is never read without them: found, but hidden because
+      // their rule and level are not proven on unseen code. The total, then per rule (every rule, also 0).
+      hiddenNotProvenTotal: result.hiddenNotProven.length,
+      hiddenNotProven: Object.fromEntries(context.rules.map((rule) => [rule.id, result.hiddenNotProven.filter((f) => f.ruleId === rule.id).length])),
       // Distinct patterns among the shown findings (a finding without a pattern counts as one).
       patterns: patternCount(context.shown),
-      // Hidden because their rule and level are not proven on unseen code (every rule listed, also with 0).
-      hiddenNotProven: Object.fromEntries(context.rules.map((rule) => [rule.id, result.hiddenNotProven.filter((f) => f.ruleId === rule.id).length])),
       // Every known rule and every severity is listed, also with 0, so the keys never change.
       findingsByRule: Object.fromEntries(context.rules.map((rule) => [rule.id, context.shown.filter((f) => f.ruleId === rule.id).length])),
       findingsBySeverity: {
@@ -105,6 +109,8 @@ export function formatJson(result: ScanResult, context: JsonReportContext): stri
         userExclude: count((s) => s.kind === "folder" && s.reason === "user-exclude"),
       },
       filesWithSyntaxErrors: new Set(result.warnings.filter((w) => w.type === "syntax-error").map((w) => w.file)).size,
+      // v0.6.0 (T2): files not checked at all because the parser ran out of call stack.
+      filesTooDeeplyNested: result.warnings.filter((w) => w.type === "too-deeply-nested").length,
       warnings: result.warnings.length,
       exitCode: context.exitCode,
       // null without --fix-preview (nothing was tried); counts only rules that can have fixes (LP003).

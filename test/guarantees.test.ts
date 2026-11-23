@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { runLimited } from "./run-limited.js";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,7 @@ const FIXTURE_SCAN = ["scan", "test/fixtures", "--no-config", ...ALL_ON, "--fix-
 
 /** Runs `node <nodeFlags> dist/cli.js <args>` from the project folder. */
 function runNode(nodeFlags: string[], args: string[]) {
-  const result = spawnSync(process.execPath, [...nodeFlags, cliPath, ...args], { cwd: projectRoot, encoding: "utf8" });
+  const result = runLimited(process.execPath, [...nodeFlags, cliPath, ...args], { cwd: projectRoot });
   return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -64,7 +64,7 @@ describe("guarantee: a scan writes nothing and starts no program (Node permissio
 
   it("proves the permission model is really active: a program that writes is refused", () => {
     const writer = 'require("node:fs").writeFileSync(require("node:path").join(require("node:os").tmpdir(), "logpilot-should-not-exist.txt"), "x")';
-    const result = spawnSync(process.execPath, [...READ_ONLY, "-e", writer], { encoding: "utf8" });
+    const result = runLimited(process.execPath, [...READ_ONLY, "-e", writer]);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("ERR_ACCESS_DENIED");
   });
@@ -160,7 +160,12 @@ describe("guarantee: the same report on every operating system", () => {
   // with the tool version replaced by "X" (so a version bump alone does not change it).
   // CI checks this on Linux and Windows. If a fixture or a rule changes on purpose, update the hash
   // and say so in the change (CHANGED ON PURPOSE), after checking the JSON diff.
-  const GOLDEN = "49af3be51ee56cdb33bde3a63040ad0ba1d8cf8c6f9a39678b386a1819e3fdc0";
+  // CHANGED ON PURPOSE (v0.6.0, after T1): summary.hiddenNotProvenTotal added and the hidden counts
+  // moved next to `findings`; undoing only that change in the new output gives the old hash
+  // 49af3be51ee56cdb33bde3a63040ad0ba1d8cf8c6f9a39678b386a1819e3fdc0.
+  // CHANGED ON PURPOSE (v0.6.0, T2): summary.filesTooDeeplyNested added; removing only that line
+  // from the new output gives the previous hash e1ee350abf8c0417ec28bb4accebbab359fa79ff220d1911698da7a9a13f00e4.
+  const GOLDEN = "fd5393c4bc239b47bb8e8bbeca5445d7bc9024d3316a13f55fd83f14bee518a2";
 
   it("gives byte-identical JSON for the fixtures (golden SHA-256)", () => {
     const { exitCode, stdout } = runNode([], [...FIXTURE_SCAN, "--format", "json"]);

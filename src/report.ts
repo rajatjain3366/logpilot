@@ -271,6 +271,11 @@ function formatSummary(result: ScanResult, options: ReportOptions): string {
         "may be incomplete (see the warnings).",
     );
   }
+  const tooDeep = result.warnings.filter((w) => w.type === "too-deeply-nested").length;
+  if (tooDeep > 0) {
+    // Without this, a file that could not be checked would look like a file without problems.
+    lines.push(`${plural(tooDeep, "file")} could not be checked: nested too deeply for the parser (see the warnings).`);
+  }
   if (result.filesScanned > 0 && result.filesWithExpressHandlers === 0) {
     // Without this, "0 LP003 findings" in a Next.js or library project could look like a clean result.
     lines.push(NO_EXPRESS_LINE);
@@ -316,12 +321,22 @@ export const NO_EXPRESS_LINE = "No Express handlers found: LP003 and fix preview
 /**
  * e.g. "Scanned 7 files, 6 findings (LP001: 6)", "Scanned 4 files, 0 findings", or with repeated
  * patterns "Scanned 9 files, 21 findings in 5 patterns (LP002: 21)".
+ * When findings were hidden because they are not proven (v0.6.0), the line says so, so that
+ * "0 findings" is never mistaken for a clean result: "Scanned 737 files: 0 proven findings, and 31
+ * more hidden (not yet proven on unseen code; see below)". "proven" is used only when every shown
+ * finding is at a proven level; otherwise (a rule set to "on") it says "findings shown".
  */
 function formatScannedLine(result: ScanResult): string {
   const files = plural(result.filesScanned, "file");
+  const hidden = result.hiddenNotProven.length;
   let findings = plural(result.findings.length, "finding");
+  if (hidden > 0) {
+    const allProven = result.findings.every((f) => RULES.find((rule) => rule.id === f.ruleId)?.provenLevels.includes(f.severity));
+    findings = allProven ? plural(result.findings.length, "proven finding") : `${plural(result.findings.length, "finding")} shown`;
+  }
+  const hiddenPart = hidden > 0 ? `, and ${hidden} more hidden (not yet proven on unseen code; see below)` : "";
   if (result.findings.length === 0) {
-    return `Scanned ${files}, ${findings}`;
+    return hidden > 0 ? `Scanned ${files}: ${findings}${hiddenPart}` : `Scanned ${files}, ${findings}`;
   }
   const patterns = patternCount(result.findings);
   if (patterns < result.findings.length) findings += ` in ${plural(patterns, "pattern")}`;
@@ -334,7 +349,7 @@ function formatScannedLine(result: ScanResult): string {
     .sort(([a], [b]) => (a < b ? -1 : 1)) // LP001 before LP002, whichever was found first
     .map(([ruleId, count]) => `${ruleId}: ${count}`)
     .join(", ");
-  return `Scanned ${files}, ${findings} (${breakdown})`;
+  return hidden > 0 ? `Scanned ${files}: ${findings} (${breakdown})${hiddenPart}` : `Scanned ${files}, ${findings} (${breakdown})`;
 }
 
 /** How much was NOT scanned, by reason. Nothing at all when nothing was skipped. */

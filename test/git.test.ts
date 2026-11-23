@@ -1,7 +1,7 @@
 // Tests for src/git.ts: finding the repository, tracked and changed files, and the exact bytes
 // `git checkout` would give back. Every test works in a throw-away repository (test/temp-repo.ts).
 
-import { spawnSync } from "node:child_process";
+import { runLimited } from "./run-limited.js";
 import { copyFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -55,7 +55,7 @@ describe("repositoryRoot", () => {
       process.chdir(planted);
       try {
         // Precondition: here, running plain "git" really would run the planted file (the danger is real).
-        const plain = spawnSync("git", ["--version"], { encoding: "utf8", windowsHide: true });
+        const plain = runLimited("git", ["--version"], { windowsHide: true });
         expect(plain.stdout.startsWith("git version"), "precondition: plain 'git' should find the planted git.exe").toBe(false);
 
         expect(repositoryRoot(repo)).toBe(realpathSync.native(repo)); // LogPilot still runs the real git (CHANGED ON PURPOSE: real path)
@@ -96,7 +96,7 @@ describe("repositoryRoot", () => {
       // What git itself says for the same command (its wording and exit code differ between versions).
       const gitPath = findProgram("git") ?? "";
       const args = ["-c", "core.fsmonitor=false", "--no-optional-locks", "-C", repo, "cat-file", "--filters", "--path=a.js", missingBlob];
-      const direct = spawnSync(gitPath, args, { encoding: "utf8", windowsHide: true });
+      const direct = runLimited(gitPath, args, { windowsHide: true });
       expect(direct.stderr.trim()).not.toBe(""); // git really reports something here
 
       expect(() => checkoutBytes(repo, "a.js", missingBlob)).toThrow(GitError);

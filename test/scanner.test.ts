@@ -6,8 +6,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALL_RULES_ON, ruleSettings, rulesThatRun } from "../src/analyze.js";
-import { scanPath } from "../src/scanner.js";
+import { ALL_RULES_ON, parseSource, ruleSettings, rulesThatRun } from "../src/analyze.js";
+import { isStackOverflow, scanPath } from "../src/scanner.js";
 
 const EMPTY_CATCH = "try { work(); } catch (e) {}\n";
 // CHANGED ON PURPOSE (v0.4.3): LP001 is off by default. These tests use empty catches (LP001) to
@@ -298,5 +298,42 @@ app.get("/x", async (req, res) => {
     withProject({ "a.js": "try { work(); } catch (e) {} // logpilot-ignore-line LP001\n" }, (dir) => {
       expect(scanPath(dir, dir).warnings.map((w) => w.type)).toEqual(["invalid-suppression"]);
     });
+  });
+});
+
+// T2 robustness run (v0.6.0): a large Flow type file nested `<T>` thousands deep. In a .js file,
+// TypeScript's parser reads each `<T>` as a JSX element, recursed past the call stack, and the
+// whole scan stopped with "Maximum call stack size exceeded" (exit code 2). Now only that file is
+// left unchecked, with a warning. The reproduction below is made up: generated nested tags.
+describe("scanner: a file too deeply nested for the parser (T2 robustness run)", () => {
+  // One tag per line: a single very long line would be skipped as minified before parsing.
+  const DEEP = "const x = " + "<T>\n".repeat(20_000) + ";\n";
+
+  it("precondition: the generated file really overflows the parser's call stack", () => {
+    expect(() => parseSource("deep.js", DEEP)).toThrow(/call stack/i);
+  });
+
+  it("skips only that file with a warning, checks every other file, and gives the same result every time", () => {
+    withProject({ "a.js": EMPTY_CATCH, "deep.js": DEEP, "z.js": EMPTY_CATCH }, (dir) => {
+      const result = scanPath(dir, dir, ALL_RULES);
+
+      expect(result.filesScanned).toBe(2);
+      expect(result.findings.map((f) => f.file)).toEqual(["a.js", "z.js"]); // the file after it too
+      expect(result.warnings).toEqual([
+        {
+          type: "too-deeply-nested",
+          file: "deep.js",
+          message: "deep.js: not checked: its code is nested too deeply for the parser (the call stack ran out); no findings are reported for it",
+        },
+      ]);
+      expect(scanPath(dir, dir, ALL_RULES)).toEqual(result);
+    });
+  });
+
+  it("treats only a call-stack overflow this way; any other error is a LogPilot bug and still stops the scan", () => {
+    expect(isStackOverflow(new RangeError("Maximum call stack size exceeded"))).toBe(true);
+    expect(isStackOverflow(new RangeError("Invalid array length"))).toBe(false);
+    expect(isStackOverflow(new TypeError("Maximum call stack size exceeded"))).toBe(false);
+    expect(isStackOverflow("Maximum call stack size exceeded")).toBe(false);
   });
 });
