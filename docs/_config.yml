@@ -1,0 +1,3 @@
+title: LogPilot
+description: Find places in Node.js/Express code where production failures leave no evidence — local, read-only, with measured accuracy.
+theme: jekyll-theme-cayman
